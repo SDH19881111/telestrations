@@ -66,8 +66,11 @@
             <span>제시어 목록 <small id="t-words-count" class="muted"></small></span>
             <textarea id="t-words" rows="5" placeholder="한 줄에 하나씩 (쉼표로 구분해도 돼요). 비워 두면 기본 제시어 200여 개를 씁니다.&#10;예) 광합성&#10;화산&#10;자석"></textarea>
           </label>
-          <p class="muted small">제시어 후보는 짝수 인원 모둠에서 3개 중 고르기로 나와요. 홀수 인원 모둠은 학생이 직접 제시어를 적습니다. 한 단어는 20자까지.</p>
-          <button id="t-save" class="btn">설정 저장</button>
+          <p class="muted small">각 학생은 첫 순서에 이 목록에서 무작위로 나온 3개 중 하나를 골라 시작해요. 한 단어는 20자까지.</p>
+          <div class="row between">
+            <span id="t-save-status" class="muted small">바꾸면 자동으로 저장돼요</span>
+            <button id="t-save" class="btn small">지금 저장</button>
+          </div>
         </div>
       </div>
 

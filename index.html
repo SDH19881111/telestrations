@@ -80,10 +80,13 @@
 
     <!-- 3. 제시어 쓰기 (홀수 인원 1라운드) -->
     <section id="screen-word" class="screen card" hidden>
-      <h2>제시어를 적어 주세요</h2>
-      <p class="muted">다음 사람이 이 단어를 그림으로 그려요. 너무 어렵지 않게!</p>
-      <input id="word-input" maxlength="20" placeholder="예: 우주에 간 고양이" autocomplete="off">
-      <button id="word-submit" class="btn primary big">완료</button>
+      <h2 id="word-title">제시어를 적어 주세요</h2>
+      <p id="word-desc" class="muted">다음 사람이 이 단어를 그림으로 그려요. 너무 어렵지 않게!</p>
+      <div id="word-screen-choices" class="choices" hidden></div>
+      <div id="word-free" class="stack">
+        <input id="word-input" maxlength="20" placeholder="예: 우주에 간 고양이" autocomplete="off">
+        <button id="word-submit" class="btn primary big">완료</button>
+      </div>
     </section>
 
     <!-- 4. 그리기 -->
@@ -91,7 +94,7 @@
       <div id="word-pick" class="card" hidden>
         <h2>그릴 제시어를 고르세요</h2>
         <div id="word-choices" class="choices"></div>
-        <div class="row">
+        <div id="word-custom-row" class="row">
           <input id="word-custom" maxlength="20" placeholder="직접 쓰기" autocomplete="off">
           <button id="word-custom-ok" class="btn">확정</button>
         </div>

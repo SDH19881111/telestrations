@@ -46,7 +46,37 @@ function parseWords(text) {
   return [...new Set(words)].slice(0, 500);
 }
 
-const wordsFor = () => (state.cls.words && state.cls.words.length ? state.cls.words : state.defaultWords);
+/** 화면에 적힌 설정값 (저장 여부와 관계없이 이것이 기준) */
+function formValues() {
+  return {
+    groups: Number($('#t-groups').value),
+    settings: { drawSec: Number($('#t-draw').value), guessSec: Number($('#t-guess').value) },
+    words: parseWords($('#t-words').value),
+  };
+}
+
+const wordsFor = (words) => (words.length ? words : state.defaultWords);
+
+// 설정은 바꾸는 즉시 자동 저장한다 (저장 버튼을 깜빡해도 적용되도록)
+let saveTimer = null;
+async function saveForm() {
+  clearTimeout(saveTimer);
+  if (!state.code) return;
+  $('#t-save-status').textContent = '저장 중…';
+  try {
+    await saveClass(state.code, formValues());
+    $('#t-save-status').textContent = '✓ 저장됨';
+  } catch (e) {
+    console.error(e);
+    $('#t-save-status').textContent = '⚠ 저장 실패';
+    throw e;
+  }
+}
+function saveSoon() {
+  $('#t-save-status').textContent = '입력 중…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveForm().catch(() => {}), 700);
+}
 
 // ---------- 로그인 ----------
 async function login() {
@@ -264,7 +294,9 @@ function renderRooms() {
 async function start(id) {
   const room = state.rooms[id];
   if (!room || room.phase !== 'lobby') return;
-  await startGame(id, room, wordsFor(), { settings: state.cls.settings, minPlayers: MIN_CLASS_PLAYERS });
+  const { settings, words } = formValues();
+  // 수업 방은 첫 제시어를 항상 선생님 목록(없으면 기본 목록)에서 고른다 — 인원이 홀수여도
+  await startGame(id, room, wordsFor(words), { settings, minPlayers: MIN_CLASS_PLAYERS, choicesForAll: true });
 }
 
 async function onRoomAction(id, e) {
@@ -333,20 +365,14 @@ function bind() {
     o.textContent = `${n}모둠`;
     groups.appendChild(o);
   }
-  $('#t-words').addEventListener('input', updateWordCount);
+  $('#t-words').addEventListener('input', () => { updateWordCount(); saveSoon(); });
+  for (const sel of ['#t-groups', '#t-draw', '#t-guess']) $(sel).addEventListener('change', () => saveForm().catch(() => {}));
 
   $('#t-save').addEventListener('click', async () => {
-    const words = parseWords($('#t-words').value);
     try {
-      await saveClass(state.code, {
-        groups: Number($('#t-groups').value),
-        settings: { drawSec: Number($('#t-draw').value), guessSec: Number($('#t-guess').value) },
-        words,
-      });
-      $('#t-words').value = words.join('\n');
-      updateWordCount();
+      await saveForm();
       toast('설정을 저장했어요. 다음에 시작하는 게임부터 적용돼요.');
-    } catch (e) { console.error(e); toast(errMsg(e)); }
+    } catch (e) { toast(errMsg(e)); }
   });
 
   $('#t-copy').addEventListener('click', async () => {
@@ -357,11 +383,11 @@ function bind() {
     const hasPlayers = roomList().some(({ room }) => Object.keys(room.players || {}).length);
     if (hasPlayers && !confirm('지금 방에 있는 학생들이 모두 나가고 방이 새로 열려요. 계속할까요?')) return;
     try {
-      // 저장 안 한 모둠 수·시간 변경도 함께 반영
-      const groups = Number($('#t-groups').value);
-      const settings = { drawSec: Number($('#t-draw').value), guessSec: Number($('#t-guess').value) };
-      await saveClass(state.code, { groups, settings });
-      await openRooms(state.code, { ...state.cls, groups, settings }, state.uid);
+      // 화면에 적힌 설정(모둠 수·시간·제시어)을 저장하고 그대로 방을 연다
+      const form = formValues();
+      const { groups } = form;
+      await saveForm();
+      await openRooms(state.code, { ...state.cls, ...form }, state.uid);
       toast(`모둠 방 ${groups}개를 열었어요.`);
     } catch (e) { console.error(e); toast(errMsg(e)); }
   });
@@ -370,6 +396,7 @@ function bind() {
     const ready = roomList().filter(({ room }) => room.phase === 'lobby' && onlinePlayers(room).length >= MIN_CLASS_PLAYERS);
     const waiting = roomList().filter(({ room }) => room.phase === 'lobby' && onlinePlayers(room).length < MIN_CLASS_PLAYERS);
     if (waiting.length && !confirm(`${waiting.map(({ room }) => room.group).join(', ')}모둠은 인원이 모자라 시작하지 않아요. 나머지 모둠을 시작할까요?`)) return;
+    saveForm().catch(() => {});
     for (const { id } of ready) {
       try { await start(id); } catch (e) { console.error(e); toast(errMsg(e)); }
     }

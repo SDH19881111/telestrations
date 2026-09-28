@@ -137,7 +137,11 @@ function render() {
   if (key.startsWith('wait')) { show('waiting'); updateHud(); return; }
 
   if (m.type === 'word') {
-    if (changed) { $('#word-input').value = ''; show('screen-word'); $('#word-input').focus(); }
+    if (changed) {
+      $('#word-input').value = '';
+      show('screen-word');
+      if (!renderWordChoices(m)) $('#word-input').focus();
+    }
   } else if (m.type === 'draw') {
     if (changed) { sketch.reset(); $('#word-custom').value = ''; show('screen-draw'); }
     renderDraw(m);
@@ -199,6 +203,30 @@ function renderLobby() {
       : isClass ? '선생님이 게임을 시작하기를 기다리는 중…' : '방장이 게임을 시작하기를 기다리는 중…';
 }
 
+/** 수업 방에서는 첫 제시어를 선생님 목록의 후보 중에서 고른다 */
+function classChoices(m) {
+  const book = (state.room.books && state.room.books[m.b]) || {};
+  return state.room.class && book.choices && book.choices.length ? book.choices : null;
+}
+
+function renderWordChoices(m) {
+  const choices = classChoices(m);
+  $('#word-screen-choices').hidden = !choices;
+  $('#word-free').hidden = !!choices;
+  $('#word-title').textContent = choices ? '제시어를 골라 주세요' : '제시어를 적어 주세요';
+  $('#word-desc').textContent = choices ? '고른 단어를 다음 사람이 그림으로 그려요.' : '다음 사람이 이 단어를 그림으로 그려요. 너무 어렵지 않게!';
+  const box = $('#word-screen-choices');
+  box.innerHTML = '';
+  for (const w of choices || []) {
+    const btn = document.createElement('button');
+    btn.className = 'btn choice';
+    btn.textContent = w;
+    btn.addEventListener('click', () => submitCurrent(false, w));
+    box.appendChild(btn);
+  }
+  return !!choices;
+}
+
 function prevPage(m) {
   const book = (state.room.books && state.room.books[m.b]) || {};
   return book.pages && book.pages[m.r - 1];
@@ -231,6 +259,7 @@ function renderDraw(m) {
     const prev = prevPage(m);
     prompt = prev && prev.content ? prev.content : '(앞사람이 비워 뒀어요. 자유롭게 그려 주세요!)';
   }
+  $('#word-custom-row').hidden = !!state.room.class && (book.choices || []).length > 0; // 수업 방은 목록에서만
   $('#word-pick').hidden = !picking;
   $('#draw-area').hidden = picking;
   $('#draw-prompt').textContent = prompt;
@@ -259,12 +288,13 @@ function updateHud() {
 }
 
 // ---------- 제출 ----------
-async function submitCurrent(auto = false) {
+async function submitCurrent(auto = false, chosen = null) {
   const m = me();
   const { room } = state;
   if (!m || room.phase !== 'playing' || hasSubmitted()) return;
   let content;
   if (m.type === 'draw') content = sketch.isEmpty() ? '' : sketch.toDataURL();
+  else if (m.type === 'word' && classChoices(m)) content = chosen || classChoices(m)[0]; // 시간이 다 되면 첫 후보
   else if (m.type === 'word') content = $('#word-input').value.trim().slice(0, 20);
   else content = $('#guess-input').value.trim().slice(0, 30);
 

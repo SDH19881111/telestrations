@@ -78,7 +78,8 @@ function wordChoices(words, N) {
 
 /**
  * 게임 시작 (방장 전용).
- * opts.settings: 시작하면서 적용할 시간 설정 (선생님 화면), opts.minPlayers: 최소 인원
+ * opts.settings: 시작하면서 적용할 시간 설정 (선생님 화면), opts.minPlayers: 최소 인원,
+ * opts.choicesForAll: 인원과 관계없이 모든 스케치북에 제시어 후보를 준다 (수업 방)
  */
 export async function startGame(code, room, words, opts = {}) {
   const min = opts.minPlayers || MIN_PLAYERS;
@@ -87,7 +88,8 @@ export async function startGame(code, room, words, opts = {}) {
   const settings = opts.settings || room.settings;
   const order = shuffle(ids);
   const N = order.length;
-  const choices = N % 2 === 0 ? wordChoices(words, N) : [];
+  // 짝수 인원은 1라운드에 제시어를 고른다. 수업 방(choicesForAll)은 홀수 인원도 목록에서 고른다.
+  const choices = N % 2 === 0 || opts.choicesForAll ? wordChoices(words, N) : [];
   const books = {};
   order.forEach((uid, i) => {
     books[i] = { owner: uid };

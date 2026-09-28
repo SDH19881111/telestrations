@@ -50,8 +50,8 @@ console.log('class created:', CLASS);
 await teacher.page.selectOption('#t-groups', '2');
 await teacher.page.selectOption('#t-draw', '30');
 await teacher.page.selectOption('#t-guess', '15');
+// '지금 저장'을 누르지 않고 바로 방을 연다 (실제 선생님 사용 흐름)
 await teacher.page.fill('#t-words', TEACHER_WORDS.join('\n'));
-await teacher.page.click('#t-save');
 await teacher.page.click('#t-open');
 await until(async () => (await teacher.page.locator('.t-room').count()) === 2, 10000, 'rooms opened');
 console.log('2 group rooms opened');
@@ -109,12 +109,16 @@ for (let r = 0; r < 4; r++) {
     await until(async () => (await k.page.locator('#hud-round').textContent()).startsWith(`${r + 1}/`) && (await screen(k)) !== 'waiting', 40000, `r${r} ${k.name}`);
     const s = await screen(k);
     if (s === 'screen-word') {
-      await k.page.fill('#word-input', `단어${i}`);
-      await k.page.click('#word-submit');
+      // 수업 방은 홀수 인원이어도 선생님 목록에서 고른다
+      assert.equal(await visible(k, '#word-free'), false, 'free typing shown in class room');
+      const choices = await k.page.locator('#word-screen-choices button').allTextContents();
+      assert.ok(choices.length > 0 && choices.every((c) => TEACHER_WORDS.includes(c)), `word choices not from teacher list: ${choices}`);
+      await k.page.locator('#word-screen-choices button').first().click();
     } else if (s === 'screen-draw') {
       if (await visible(k, '#word-pick')) {
         const choices = await k.page.locator('#word-choices button').allTextContents();
         assert.ok(choices.length > 0 && choices.every((c) => TEACHER_WORDS.includes(c)), `choices not from teacher list: ${choices}`);
+        assert.equal(await visible(k, '#word-custom-row'), false, 'custom word input shown in class room');
         await k.page.locator('#word-choices button').first().click();
       }
       const box = await k.page.locator('#canvas').boundingBox();
@@ -133,6 +137,11 @@ for (let r = 0; r < 4; r++) {
 }
 await until(async () => (await Promise.all(kids.map(screen))).every((s) => s === 'screen-result'), 20000, 'results');
 console.log('all groups finished');
+for (const k of [kids[0], kids[4]]) {
+  const first = (await k.page.locator('#result-pages .entry').first().textContent()).replace(/^.*·\s*제시어/, '').trim();
+  assert.ok(TEACHER_WORDS.includes(first), `first word not from teacher list: ${first}`);
+}
+console.log('results start with teacher words');
 
 // ---------- 결과 발표 (1모둠) ----------
 await until(async () => (await teacher.page.locator('.t-room').first().locator('[data-act="present"]').isVisible()), 10000, 'present btn');
