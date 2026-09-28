@@ -80,12 +80,17 @@ export async function joinRoom(code, uid, name) {
 }
 
 export async function leaveRoom(code, uid) {
-  stopPresence();
-  const snap = await get(roomRef(code, 'phase'));
-  if (snap.val() === 'lobby') {
-    await remove(roomRef(code, `players/${uid}`));
-  } else {
-    await set(roomRef(code, `players/${uid}/online`), false);
+  // 나가기가 서버에 반영된 뒤에 접속 상태 감시를 끈다.
+  // (먼저 끄면, 반영 전에 탭이 닫힐 때 '접속 중'인 유령 참가자가 남는다)
+  try {
+    const snap = await get(roomRef(code, 'phase'));
+    if (snap.val() === 'lobby') {
+      await remove(roomRef(code, `players/${uid}`));
+    } else {
+      await set(roomRef(code, `players/${uid}/online`), false);
+    }
+  } finally {
+    stopPresence();
   }
 }
 

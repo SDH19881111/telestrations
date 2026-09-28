@@ -103,6 +103,7 @@ export async function startGame(code, room, words, opts = {}) {
     books,
     submitted: null,
     resultView: null,
+    startRequest: null,
     ...roundFields(order, 0, settings),
   });
 }
@@ -181,6 +182,6 @@ export function backToLobby(code) {
   lastAdvanced.delete(code);
   return update(roomRef(code), {
     phase: 'lobby', order: null, books: null, submitted: null, round: null, roundKey: null,
-    assign: null, deadline: null, resultView: null,
+    assign: null, deadline: null, resultView: null, startRequest: null,
   });
 }

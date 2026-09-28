@@ -50,6 +50,10 @@
         "resultView": {
           ".write": "auth != null && data.parent().child('hostId').val() === auth.uid"
         },
+        "startRequest": {
+          ".write": "auth != null && (data.parent().child('hostId').val() === auth.uid || (newData.exists() && newData.child('by').val() === auth.uid && data.parent().child('players').child(auth.uid).exists() && data.parent().child('phase').val() === 'lobby' && data.parent().child('class').isString() && root.child('classes').child(data.parent().child('class').val()).child('leaderStart').val() === true))",
+          ".validate": "newData.hasChildren(['by', 'at']) && newData.child('at').isNumber()"
+        },
         "players": {
           "$uid": {
             ".write": "auth != null && ((auth.uid === $uid && (data.exists() || root.child('rooms').child($room).child('phase').val() === 'lobby')) || (!newData.exists() && root.child('rooms').child($room).child('hostId').val() === auth.uid))",

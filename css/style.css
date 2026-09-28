@@ -200,3 +200,6 @@ body.teacher main { max-width: 1100px; }
 .present .entry img { max-width: min(560px, 70vh); }
 .present .entry-text { font-size: 34px; }
 .sticky-controls { position: sticky; bottom: calc(12px + env(safe-area-inset-bottom)); }
+
+.check { display: flex; align-items: flex-start; gap: 8px; font-size: 15px; cursor: pointer; }
+.check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--primary); }

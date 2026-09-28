@@ -3,7 +3,7 @@ import { ref, db, get, set, update, remove, serverNow, roomRef } from './firebas
 import { DEFAULT_SETTINGS, classRoomId, RoomError } from './room.js';
 
 export const MAX_GROUPS = 8;
-export const DEFAULT_CLASS = { groups: 2, open: false, settings: { ...DEFAULT_SETTINGS }, words: [] };
+export const DEFAULT_CLASS = { groups: 2, open: false, leaderStart: true, settings: { ...DEFAULT_SETTINGS }, words: [] };
 
 const classRef = (code, path = '') => ref(db, `classes/${code}${path ? '/' + path : ''}`);
 
@@ -85,6 +85,11 @@ export async function closeRooms(code) {
 /** 선생님 화면에서 수업 방 진행권을 다시 가져온다 (다른 기기에서 로그인한 경우) */
 export function claimRoomHost(roomId, uid) {
   return set(roomRef(roomId, 'hostId'), uid);
+}
+
+/** 모둠장의 시작 요청을 지운다 (인원이 모자라 시작할 수 없을 때) */
+export function clearStartRequest(roomId) {
+  return remove(roomRef(roomId, 'startRequest'));
 }
 
 export function kickPlayer(roomId, uid) {

@@ -3,6 +3,7 @@ import { ensureAuth, isConfigured, onValue, ref, db, roomRef, serverNow } from '
 import { normalizeClassCode, isClassCode, classRoomId, RoomError, MIN_CLASS_PLAYERS, MAX_PLAYERS } from './room.js';
 import {
   getClass, isOwner, loginClass, createClass, saveClass, openRooms, closeRooms, claimRoomHost, kickPlayer,
+  clearStartRequest,
   MAX_GROUPS,
 } from './classroom.js';
 import { startGame, hostTick, backToLobby, onlinePlayers, pageType } from './game.js';
@@ -52,6 +53,7 @@ function formValues() {
     groups: Number($('#t-groups').value),
     settings: { drawSec: Number($('#t-draw').value), guessSec: Number($('#t-guess').value) },
     words: parseWords($('#t-words').value),
+    leaderStart: $('#t-leader').checked,
   };
 }
 
@@ -138,7 +140,12 @@ async function enterDashboard(code) {
     if (!cls) return;
     const prevGroups = state.cls ? state.cls.groups : null;
     state.cls = cls;
-    if (!formLoaded) { fillForm(cls); formLoaded = true; }
+    if (!formLoaded) {
+      fillForm(cls);
+      formLoaded = true;
+      // 이 기능 이전에 만든 수업은 값이 없으므로 기본값(켜짐)을 저장
+      if (cls.leaderStart === undefined) saveClass(code, { leaderStart: true }).catch(() => {});
+    }
     if (prevGroups !== cls.groups) subscribeRooms();
     renderControls();
   }));
@@ -149,6 +156,7 @@ function fillForm(cls) {
   $('#t-draw').value = String(cls.settings.drawSec);
   $('#t-guess').value = String(cls.settings.guessSec);
   $('#t-words').value = (cls.words || []).join('\n');
+  $('#t-leader').checked = cls.leaderStart !== false;
   updateWordCount();
 }
 
@@ -176,6 +184,7 @@ function subscribeRooms() {
       } else {
         delete state.rooms[id];
       }
+      if (room && room.class === state.code) handleStartRequest(id, room);
       renderRooms();
       renderControls();
       if (state.presenting === id) renderPresentation();
@@ -285,9 +294,31 @@ function renderRooms() {
     card.querySelector('[data-act="start"]').disabled = online < MIN_CLASS_PLAYERS;
     card.querySelector('[data-act="present"]').hidden = room.phase !== 'result';
     card.querySelector('[data-act="lobby"]').hidden = room.phase === 'lobby';
+    const leader = onlinePlayers(room)[0];
+    const leaderText = state.cls && state.cls.leaderStart !== false && leader ? ` · 👑 모둠장 ${room.players[leader].name}` : '';
     card.querySelector('.t-room-hint').textContent = room.phase === 'lobby'
-      ? (online < MIN_CLASS_PLAYERS ? `${MIN_CLASS_PLAYERS}명 이상이면 시작할 수 있어요 (지금 ${online}명, 최대 ${MAX_PLAYERS}명)` : `${online}명 준비 완료`)
+      ? (online < MIN_CLASS_PLAYERS ? `${MIN_CLASS_PLAYERS}명 이상이면 시작할 수 있어요 (지금 ${online}명, 최대 ${MAX_PLAYERS}명)` : `${online}명 준비 완료`) + leaderText
       : '';
+  }
+}
+
+/** 모둠장이 누른 '게임 시작' 요청을 선생님 설정으로 처리한다 */
+const handlingRequest = new Set();
+async function handleStartRequest(id, room) {
+  if (!room.startRequest || room.phase !== 'lobby' || room.hostId !== state.uid || handlingRequest.has(id)) return;
+  handlingRequest.add(id);
+  try {
+    if (onlinePlayers(room).length >= MIN_CLASS_PLAYERS) {
+      await start(id);
+      toast(`${room.group}모둠 모둠장이 게임을 시작했어요.`);
+    } else {
+      await clearStartRequest(id);
+    }
+  } catch (e) {
+    console.error(e);
+    await clearStartRequest(id).catch(() => {});
+  } finally {
+    handlingRequest.delete(id);
   }
 }
 
@@ -366,7 +397,7 @@ function bind() {
     groups.appendChild(o);
   }
   $('#t-words').addEventListener('input', () => { updateWordCount(); saveSoon(); });
-  for (const sel of ['#t-groups', '#t-draw', '#t-guess']) $(sel).addEventListener('change', () => saveForm().catch(() => {}));
+  for (const sel of ['#t-groups', '#t-draw', '#t-guess', '#t-leader']) $(sel).addEventListener('change', () => saveForm().catch(() => {}));
 
   $('#t-save').addEventListener('click', async () => {
     try {

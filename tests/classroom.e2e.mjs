@@ -83,7 +83,8 @@ for (let i = 0; i < plan.length; i++) {
   kids.push(k);
 }
 assert.equal(await kids[0].page.locator('#lobby-code').textContent(), '1모둠');
-assert.equal(await kids[0].page.locator('#btn-start').isVisible(), false);
+assert.equal(await kids[1].page.locator('#btn-start').isVisible(), false); // 모둠장(kids[0])이 아니면 시작 버튼 없음
+await until(() => kids[0].page.locator('#btn-start').isVisible(), 10000, 'group 1 leader button');
 assert.equal(await kids[0].page.locator('#lobby-settings').isVisible(), false);
 console.log('kids joined; lobby hint:', await kids[0].page.locator('#lobby-hint').textContent());
 
@@ -107,13 +108,29 @@ await sameBrowser.locator('#group-list button', { hasText: '2모둠' }).click();
 await sameBrowser.locator('#screen-lobby').waitFor({ state: 'visible' });
 assert.equal(await sameBrowser.locator('#btn-start').isVisible(), false, 'student tab in teacher browser shows start button');
 await sameBrowser.click('#btn-leave');
+await sameBrowser.locator('#screen-home').waitFor({ state: 'visible' }); // 나가기가 끝나면 첫 화면
 await sameBrowser.close();
 console.log('student tab in teacher browser cannot start the game');
 
 await until(async () => (await teacher.page.locator('.t-room .players li').count()) === 7, 10000, 'teacher sees kids');
 await teacher.page.screenshot({ path: `${SHOTS}/class-teacher-lobby.png`, fullPage: true });
 
-// ---------- 전체 시작 → 게임 진행 ----------
+// ---------- 모둠장 시작 (2모둠) ----------
+const leader2 = kids[4]; // 2모둠에 가장 먼저 들어온 학생
+await until(() => leader2.page.locator('#btn-start').isVisible(), 10000, 'leader start button');
+assert.equal(await kids[5].page.locator('#btn-start').isVisible(), false, 'non-leader sees start');
+console.log('leader hint for others:', await kids[5].page.locator('#lobby-hint').textContent());
+// 선생님이 끄면 모둠장 버튼이 사라진다
+await teacher.page.uncheck('#t-leader');
+await until(async () => !(await leader2.page.locator('#btn-start').isVisible()), 10000, 'toggle off hides button');
+await teacher.page.check('#t-leader');
+await until(() => leader2.page.locator('#btn-start').isVisible(), 10000, 'toggle on shows button');
+await leader2.page.click('#btn-start');
+await until(async () => (await screen(leader2)) !== 'screen-lobby', 10000, 'leader started group 2');
+assert.equal(await screen(kids[0]), 'screen-lobby', 'group 1 should still wait');
+console.log('group 2 started by its leader; group 1 still waiting');
+
+// ---------- 나머지는 선생님이 전체 시작 → 게임 진행 ----------
 await teacher.page.click('#t-start-all');
 await until(async () => (await Promise.all(kids.map(screen))).every((s) => s !== 'screen-lobby'), 10000, 'started');
 

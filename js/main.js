@@ -1,9 +1,9 @@
 // 화면 전환, 방 상태 구독
-import { ensureAuth, isConfigured, onValue, get, roomRef, serverNow } from './firebase.js';
+import { ensureAuth, isConfigured, onValue, get, set, ref, db, roomRef, serverNow, serverTimestamp } from './firebase.js';
 import {
   createRoom, joinRoom, leaveRoom, startPresence, stopPresence, updateSettings, maybeClaimHost,
   normalizeCode, normalizeClassCode, normalizeRoomId, isClassCode, classRoomId, cleanName, RoomError,
-  MIN_PLAYERS, MAX_PLAYERS,
+  MIN_PLAYERS, MIN_CLASS_PLAYERS, MAX_PLAYERS,
 } from './room.js';
 import { getClass, groupInfo } from './classroom.js';
 import {
@@ -24,6 +24,7 @@ const state = {
   screenKey: '',
   sentRound: null, // 내가 제출 요청을 보낸 라운드 (DB 반영 전 중복 제출 방지)
   words: FALLBACK_WORDS,
+  leaderStart: false, // 수업 방: 모둠장이 직접 시작할 수 있는지 (선생님 설정)
 };
 
 let sketch = null;
@@ -100,7 +101,19 @@ function enterRoom(code) {
   });
 }
 
+// 수업 방: 선생님이 '모둠장이 직접 시작'을 켰는지 구독
+let leaderStartOff = null;
+function watchLeaderStart(classCode) {
+  if (leaderStartOff) return;
+  leaderStartOff = onValue(ref(db, `classes/${classCode}/leaderStart`), (snap) => {
+    state.leaderStart = snap.val() === true;
+    if (state.room) render();
+  }, () => {});
+}
+
 function exitRoom(message = '') {
+  if (leaderStartOff) { leaderStartOff(); leaderStartOff = null; }
+  state.leaderStart = false;
   if (state.unsub) state.unsub();
   stopPresence();
   Object.assign(state, { code: null, room: null, unsub: null, screenKey: '', sentRound: null });
@@ -116,6 +129,7 @@ function onRoom(room) {
   if (!room) return exitRoom(state.room && state.room.class ? '선생님이 모둠 방을 닫았어요.' : '방이 사라졌어요.');
   if (!room.players || !room.players[state.uid]) return exitRoom(room.class ? '모둠에서 나왔어요. 다시 들어올 수 있어요.' : '방에서 나왔어요.');
   state.room = room;
+  if (room.class) watchLeaderStart(room.class);
   if (room.phase !== 'playing') state.sentRound = null;
   maybeClaimHost(state.code, room, state.uid);
   render();
@@ -170,6 +184,9 @@ function renderLobby() {
   $('#lobby-settings').hidden = isClass;
   const entries = Object.entries(room.players).sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
   const online = onlinePlayers(room).length;
+  // 수업 방의 모둠장: 지금 접속해 있는 학생 중 가장 먼저 들어온 사람
+  const leader = isClass ? onlinePlayers(room)[0] : null;
+  const canLeaderStart = isClass && state.leaderStart && leader === uid;
   $('#lobby-count').textContent = `${entries.length}/${MAX_PLAYERS}`;
 
   const ul = $('#lobby-players');
@@ -178,7 +195,13 @@ function renderLobby() {
     const li = document.createElement('li');
     li.className = p.online ? '' : 'offline';
     li.textContent = p.name;
-    if (id === room.hostId) li.prepend('👑 ');
+    if (isClass ? id === leader : id === room.hostId) li.prepend('👑 ');
+    if (isClass && id === leader) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = '모둠장';
+      li.appendChild(tag);
+    }
     if (id === uid) {
       const tag = document.createElement('span');
       tag.className = 'tag';
@@ -203,13 +226,22 @@ function renderLobby() {
   const playing = room.phase === 'playing';
   $('#lobby-banner').hidden = !playing;
   $('#lobby-banner').textContent = playing ? '게임이 진행 중이에요. 이번 판이 끝나면 함께할 수 있어요.' : '';
-  $('#btn-start').hidden = !isHost || playing;
-  $('#btn-start').disabled = online < MIN_PLAYERS;
-  $('#lobby-hint').textContent = playing
-    ? ''
-    : isHost
-      ? (online < MIN_PLAYERS ? `${MIN_PLAYERS}명 이상 모이면 시작할 수 있어요 (지금 ${online}명)` : `${online}명이 함께해요. 시작해 볼까요?`)
-      : isClass ? '선생님이 게임을 시작하기를 기다리는 중…' : '방장이 게임을 시작하기를 기다리는 중…';
+  const min = isClass ? MIN_CLASS_PLAYERS : MIN_PLAYERS;
+  const requested = isClass && !!room.startRequest;
+  $('#btn-start').hidden = !(isHost || canLeaderStart) || playing;
+  $('#btn-start').disabled = online < min || requested;
+  $('#btn-start').textContent = requested ? '시작하는 중…' : '게임 시작';
+  const leaderName = leader && room.players[leader] ? room.players[leader].name : '';
+  let hint;
+  if (playing) hint = '';
+  else if (isHost || canLeaderStart) {
+    hint = online < min ? `${min}명 이상 모이면 시작할 수 있어요 (지금 ${online}명)` : `${online}명이 함께해요. 시작해 볼까요?`;
+    // 요청했는데 몇 초가 지나도 시작되지 않으면: 선생님 화면이 꺼져 있는 경우
+    if (requested && serverNow() - (room.startRequest.at || 0) > 6000) hint = '선생님 화면이 켜져 있어야 시작돼요. 선생님께 말씀드려 주세요.';
+  } else if (isClass) {
+    hint = state.leaderStart && leaderName ? `모둠장 ${leaderName}(이)나 선생님이 시작하면 게임이 시작돼요.` : '선생님이 게임을 시작하기를 기다리는 중…';
+  } else hint = '방장이 게임을 시작하기를 기다리는 중…';
+  $('#lobby-hint').textContent = hint;
 }
 
 /** 수업 방에서는 첫 제시어를 선생님 목록의 후보 중에서 고른다 */
@@ -338,6 +370,7 @@ async function pickWord(word) {
 // 250ms마다: 타이머 표시, 마감 시 자동 제출, 방장 진행 체크
 function tick() {
   const { room } = state;
+  if (room && room.phase === 'lobby' && room.startRequest && state.screenKey === 'lobby') renderLobby(); // 시작 요청 대기 안내 갱신
   if (!room || room.phase !== 'playing') return;
   updateHud();
   if (me() && !hasSubmitted() && serverNow() >= room.deadline) submitCurrent(true);
@@ -478,15 +511,25 @@ function bindEvents() {
 
   $('#btn-leave').addEventListener('click', async () => {
     const code = state.code;
-    exitRoom('');
+    $('#btn-leave').disabled = true;
     try { await leaveRoom(code, state.uid); } catch (e) { console.warn(e); }
+    $('#btn-leave').disabled = false;
+    exitRoom('');
   });
 
   $('#set-draw').addEventListener('change', (e) => updateSettings(state.code, { drawSec: Number(e.target.value) }));
   $('#set-guess').addEventListener('change', (e) => updateSettings(state.code, { guessSec: Number(e.target.value) }));
 
   $('#btn-start').addEventListener('click', async () => {
-    if (!actsAsHost(state.room)) return;
+    const room = state.room;
+    if (room && room.class) {
+      // 모둠장: 선생님 화면에 시작을 요청 → 선생님 제시어·설정으로 시작된다
+      try {
+        await set(roomRef(state.code, 'startRequest'), { by: state.uid, at: serverTimestamp() });
+      } catch (e) { console.error(e); toast('시작하지 못했어요. 선생님께 말씀드려 주세요.'); }
+      return;
+    }
+    if (!actsAsHost(room)) return;
     try { await startGame(state.code, state.room, state.words); } catch (e) { toast(e.message || '시작하지 못했어요.'); }
   });
 
