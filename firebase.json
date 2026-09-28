@@ -15,13 +15,29 @@
       "**/node_modules/**"
     ],
     "headers": [
-      { "source": "**/*.@(js|css|html|json)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
     ]
   },
   "emulators": {
-    "auth": { "port": 9099 },
-    "database": { "port": 9000 },
-    "hosting": { "port": 5000 },
-    "ui": { "enabled": false }
+    "auth": {
+      "port": 9099
+    },
+    "database": {
+      "port": 9000
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "ui": {
+      "enabled": false
+    }
   }
 }
