@@ -61,36 +61,58 @@ export function onlinePlayers(room) {
     .map(([uid]) => uid);
 }
 
-export async function startGame(code, room, words) {
+/** 제시어 후보: 스케치북마다 3개. 단어가 모자라면(선생님이 짧은 목록을 넣은 경우) 다시 섞어서 이어 붙인다. */
+function wordChoices(words, N) {
+  const list = [...new Set(words.filter(Boolean))];
+  if (!list.length) return [];
+  let pool = [];
+  while (pool.length < N * 3) pool = pool.concat(shuffle(list));
+  return Array.from({ length: N }, (_, i) => {
+    const picked = [];
+    for (let k = i * 3; picked.length < Math.min(3, list.length) && k < pool.length; k++) {
+      if (!picked.includes(pool[k])) picked.push(pool[k]);
+    }
+    return picked;
+  });
+}
+
+/**
+ * 게임 시작 (방장 전용).
+ * opts.settings: 시작하면서 적용할 시간 설정 (선생님 화면), opts.minPlayers: 최소 인원
+ */
+export async function startGame(code, room, words, opts = {}) {
+  const min = opts.minPlayers || MIN_PLAYERS;
   const ids = onlinePlayers(room);
-  if (ids.length < MIN_PLAYERS) throw new Error(`최소 ${MIN_PLAYERS}명이 있어야 시작할 수 있어요.`);
+  if (ids.length < min) throw new Error(`최소 ${min}명이 있어야 시작할 수 있어요.`);
+  const settings = opts.settings || room.settings;
   const order = shuffle(ids);
   const N = order.length;
-  const pool = shuffle(words);
+  const choices = N % 2 === 0 ? wordChoices(words, N) : [];
   const books = {};
   order.forEach((uid, i) => {
     books[i] = { owner: uid };
-    if (N % 2 === 0) books[i].choices = pool.slice(i * 3, i * 3 + 3);
+    if (choices[i] && choices[i].length) books[i].choices = choices[i];
   });
-  lastAdvanced = null;
+  lastAdvanced.delete(code);
   await update(roomRef(code), {
     phase: 'playing',
+    settings,
     order,
     books,
     submitted: null,
     resultView: null,
-    ...roundFields(order, 0, room.settings),
+    ...roundFields(order, 0, settings),
   });
 }
 
-let lastAdvanced = null;
+const lastAdvanced = new Map(); // 방별로 이미 넘긴 라운드 (중복 진행 방지)
 
 /** 미제출 페이지를 '(건너뜀)'으로 채우고 다음 라운드(또는 결과)로 넘긴다. */
 async function advance(code, room) {
   const r = room.round;
-  const key = `${code}:${room.order.join()}:${r}`;
-  if (lastAdvanced === key) return;
-  lastAdvanced = key;
+  const key = `${room.order.join()}:${r}`;
+  if (lastAdvanced.get(code) === key) return;
+  lastAdvanced.set(code, key);
 
   const { order } = room;
   const N = order.length;
@@ -118,7 +140,7 @@ async function advance(code, room) {
     await update(roomRef(code), updates);
   } catch (e) {
     console.warn('advance', e);
-    lastAdvanced = null;
+    lastAdvanced.delete(code);
   }
 }
 
@@ -154,7 +176,7 @@ export function setResultView(code, view) {
 }
 
 export function backToLobby(code) {
-  lastAdvanced = null;
+  lastAdvanced.delete(code);
   return update(roomRef(code), {
     phase: 'lobby', order: null, books: null, submitted: null, round: null, roundKey: null,
     assign: null, deadline: null, resultView: null,

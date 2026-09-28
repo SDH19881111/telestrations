@@ -2,8 +2,10 @@
 import { ensureAuth, isConfigured, onValue, get, roomRef, serverNow } from './firebase.js';
 import {
   createRoom, joinRoom, leaveRoom, startPresence, stopPresence, updateSettings, maybeClaimHost,
-  normalizeCode, cleanName, RoomError, MIN_PLAYERS, MAX_PLAYERS,
+  normalizeCode, normalizeClassCode, normalizeRoomId, isClassCode, classRoomId, cleanName, RoomError,
+  MIN_PLAYERS, MAX_PLAYERS,
 } from './room.js';
+import { getClass, groupInfo } from './classroom.js';
 import {
   pageType, bookFor, startGame, hostTick, submitPage, chooseWord, backToLobby, onlinePlayers,
 } from './game.js';
@@ -95,13 +97,15 @@ function exitRoom(message = '') {
   Object.assign(state, { code: null, room: null, unsub: null, screenKey: '', sentRound: null });
   setUrlRoom(null);
   $('#hud').hidden = true;
+  $('#group-pick').hidden = true;
+  $('#home-main').hidden = false;
   show('screen-home');
   $('#home-error').textContent = message;
 }
 
 function onRoom(room) {
-  if (!room || !room.players) return exitRoom('방이 사라졌어요.');
-  if (!room.players[state.uid]) return exitRoom('방에서 나왔어요.');
+  if (!room) return exitRoom(state.room && state.room.class ? '선생님이 모둠 방을 닫았어요.' : '방이 사라졌어요.');
+  if (!room.players || !room.players[state.uid]) return exitRoom(room.class ? '모둠에서 나왔어요. 다시 들어올 수 있어요.' : '방에서 나왔어요.');
   state.room = room;
   if (room.phase !== 'playing') state.sentRound = null;
   maybeClaimHost(state.code, room, state.uid);
@@ -146,7 +150,11 @@ function render() {
 function renderLobby() {
   const { room, uid, code } = state;
   const isHost = room.hostId === uid;
-  $('#lobby-code').textContent = code;
+  const isClass = !!room.class;
+  $('#lobby-code').textContent = isClass ? `${room.group}모둠` : code;
+  $('#lobby-code-label').textContent = isClass ? `수업 ${room.class}` : '방 코드';
+  $('#btn-share').hidden = isClass;
+  $('#lobby-settings').hidden = isClass;
   const entries = Object.entries(room.players).sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
   const online = onlinePlayers(room).length;
   $('#lobby-count').textContent = `${entries.length}/${MAX_PLAYERS}`;
@@ -188,7 +196,7 @@ function renderLobby() {
     ? ''
     : isHost
       ? (online < MIN_PLAYERS ? `${MIN_PLAYERS}명 이상 모이면 시작할 수 있어요 (지금 ${online}명)` : `${online}명이 함께해요. 시작해 볼까요?`)
-      : '방장이 게임을 시작하기를 기다리는 중…';
+      : isClass ? '선생님이 게임을 시작하기를 기다리는 중…' : '방장이 게임을 시작하기를 기다리는 중…';
 }
 
 function prevPage(m) {
@@ -363,16 +371,59 @@ function bindEvents() {
   const join = guard(async () => {
     const name = requireName();
     if (!name) return;
-    const code = normalizeCode($('#home-code').value);
-    if (code.length !== 4) { $('#home-error').textContent = '방 코드 4글자를 입력해 주세요.'; return; }
-    await joinRoom(code, state.uid, name);
-    enterRoom(code);
+    const raw = $('#home-code').value.trim();
+    if (/^[a-zA-Z]{4}$/.test(raw)) {
+      const code = normalizeCode(raw);
+      await joinRoom(code, state.uid, name);
+      enterRoom(code);
+      return;
+    }
+    const classCode = normalizeClassCode(raw);
+    if (!isClassCode(classCode)) { $('#home-error').textContent = '방 코드(영문 4글자)나 선생님이 알려 준 수업 코드를 입력해 주세요.'; return; }
+    await showGroups(classCode);
   });
+
+  // 수업 코드 → 모둠 고르기
+  async function showGroups(classCode) {
+    const cls = await getClass(classCode);
+    if (!cls) throw new RoomError('그런 수업 코드가 없어요. 선생님께 다시 확인해 주세요.');
+    if (!cls.open) throw new RoomError('아직 수업 방이 열리지 않았어요. 선생님을 기다려 주세요.');
+    const groups = await groupInfo(classCode, cls.groups);
+    $('#group-title').textContent = `${classCode} · 모둠을 고르세요`;
+    const list = $('#group-list');
+    list.innerHTML = '';
+    for (const g of groups) {
+      const btn = document.createElement('button');
+      btn.className = 'btn choice group';
+      const full = g.count >= MAX_PLAYERS;
+      const playing = g.phase && g.phase !== 'lobby';
+      btn.disabled = !g.exists || full || playing;
+      btn.innerHTML = '';
+      const b = document.createElement('strong');
+      b.textContent = `${g.n}모둠`;
+      const small = document.createElement('small');
+      small.textContent = !g.exists ? '닫힘' : playing ? '게임 중' : full ? '꽉 찼어요' : `${g.count}명`;
+      btn.append(b, small);
+      btn.addEventListener('click', guard(async () => {
+        const name = requireName();
+        if (!name) return;
+        const id = classRoomId(classCode, g.n);
+        await joinRoom(id, state.uid, name);
+        $('#group-pick').hidden = true;
+        enterRoom(id);
+      }));
+      list.appendChild(btn);
+    }
+    $('#home-main').hidden = true;
+    $('#group-pick').hidden = false;
+  }
+  $('#group-back').addEventListener('click', () => { $('#group-pick').hidden = true; $('#home-main').hidden = false; });
+  $('#group-refresh').addEventListener('click', guard(async () => showGroups(normalizeClassCode($('#home-code').value))));
+  state.showGroups = guard(async () => { if (requireName()) await showGroups(normalizeClassCode($('#home-code').value)); });
 
   $('#btn-create').addEventListener('click', create);
   $('#btn-join').addEventListener('click', join);
   onEnter($('#home-code'), join);
-  $('#home-code').addEventListener('input', (e) => { e.target.value = normalizeCode(e.target.value); });
 
   $('#btn-share').addEventListener('click', async () => {
     const link = inviteLink(state.code);
@@ -416,8 +467,11 @@ async function init() {
   bindEvents();
   setupToolbar();
   $('#home-name').value = localStorage.getItem('tele.name') || '';
-  const urlCode = normalizeCode(new URLSearchParams(location.search).get('room'));
-  if (urlCode) $('#home-code').value = urlCode;
+  const params = new URLSearchParams(location.search);
+  const urlCode = normalizeRoomId(params.get('room'));
+  const urlClass = normalizeClassCode(params.get('class'));
+  if (urlCode) $('#home-code').value = /^[A-Z]{4}$/.test(urlCode) ? urlCode : urlCode.split('-')[0];
+  else if (urlClass) $('#home-code').value = urlClass;
 
   fetch('words.json').then((r) => r.json()).then((w) => { if (Array.isArray(w) && w.length >= 30) state.words = w; }).catch(() => {});
 
@@ -447,6 +501,8 @@ async function init() {
       }
     } catch (e) { console.warn(e); }
   }
+  // 선생님이 준 링크(?class=3반)로 들어왔고 이름을 기억하고 있으면 바로 모둠 고르기
+  if (!state.code && urlClass && myName()) state.showGroups();
   setInterval(tick, 250);
 }
 

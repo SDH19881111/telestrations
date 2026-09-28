@@ -19,7 +19,7 @@ const PER_TAB = params.has('multi');
 export const isConfigured = USE_EMULATOR || !firebaseConfig.apiKey.startsWith('YOUR_');
 
 const config = USE_EMULATOR
-  ? { apiKey: 'demo-key', projectId: 'demo-telestrations', databaseURL: 'http://127.0.0.1:9000?ns=demo-telestrations' }
+  ? { apiKey: 'demo-key', projectId: 'demo-telestrations', databaseURL: 'http://127.0.0.1:9000?ns=demo-telestrations-default-rtdb' }
   : firebaseConfig;
 
 const app = initializeApp(config);

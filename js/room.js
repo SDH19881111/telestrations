@@ -5,6 +5,7 @@ import {
 } from './firebase.js';
 
 export const MIN_PLAYERS = 4;
+export const MIN_CLASS_PLAYERS = 3; // 수업 모둠은 3명부터
 export const MAX_PLAYERS = 10;
 export const NAME_MAX = 10;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // 헷갈리는 I, O 제외
@@ -22,6 +23,22 @@ function randomCode() {
 
 export function normalizeCode(code) {
   return (code || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+}
+
+/** 수업 코드: 한글·영문 대문자·숫자 2~10자 (예: 3반, SCIENCE1) */
+export function normalizeClassCode(code) {
+  return (code || '').toUpperCase().replace(/[^가-힣A-Z0-9]/g, '').slice(0, 10);
+}
+
+export const isClassCode = (code) => /^[가-힣A-Z0-9]{2,10}$/.test(code);
+export const classRoomId = (classCode, group) => `${classCode}-${group}`;
+
+/** URL 등에서 온 방 아이디 검사: 일반 방(ABCD) 또는 수업 모둠 방(3반-2) */
+export function normalizeRoomId(id) {
+  const s = (id || '').trim().toUpperCase();
+  if (/^[A-Z]{4}$/.test(s)) return s;
+  if (/^[가-힣A-Z0-9]{2,10}-\d{1,2}$/.test(s)) return s;
+  return '';
 }
 
 export function cleanName(name) {
@@ -50,8 +67,8 @@ export async function createRoom(uid, name) {
 export async function joinRoom(code, uid, name) {
   const snap = await get(roomRef(code));
   const room = snap.val();
-  if (!room || !room.players) throw new RoomError('그런 방이 없어요. 코드를 확인해 주세요.');
-  const players = room.players;
+  if (!room) throw new RoomError('그런 방이 없어요. 코드를 확인해 주세요.');
+  const players = room.players || {};
   if (players[uid]) {
     // 재접속: 같은 사람으로 복귀
     await update(roomRef(code, `players/${uid}`), { name, online: true });
@@ -106,6 +123,7 @@ export function updateSettings(code, settings) {
  * 모든 클라이언트가 같은 계산을 하므로 '나'가 대상일 때만 쓴다.
  */
 export async function maybeClaimHost(code, room, uid) {
+  if (room.class) return; // 수업 방은 선생님만 진행
   const players = room.players || {};
   const host = players[room.hostId];
   if (host && host.online) return;

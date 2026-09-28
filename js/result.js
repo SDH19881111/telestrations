@@ -126,9 +126,10 @@ export function renderResult(ctx) {
   $('#result-next').textContent = view.step < entries.length - 1 ? '다음 장 ▶' : '다음 스케치북 ▶';
   $('#result-follow').hidden = isHost;
   $('#result-follow').textContent = freeView ? '📺 발표 따라가기' : '👀 혼자 넘겨 보기';
+  const leader = room.class ? '선생님' : '방장';
   $('#result-hint').textContent = isHost
-    ? '방장이 넘기면 모두의 화면이 같이 넘어가요.'
-    : freeView ? '혼자 보는 중이에요.' : '방장이 넘기는 대로 보고 있어요.';
+    ? `${leader}이 넘기면 모두의 화면이 같이 넘어가요.`
+    : freeView ? '혼자 보는 중이에요.' : `${leader}이 넘기는 대로 보고 있어요.`;
   $('#result-lobby').hidden = !isHost;
 
   function go(v) {

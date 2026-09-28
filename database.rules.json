@@ -3,47 +3,71 @@
     "rooms": {
       "$room": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() || data.child('createdAt').val() < now - 43200000) && newData.child('hostId').val() === auth.uid && newData.child('players').child(auth.uid).exists()",
-        ".validate": "$room.matches(/^[A-Z]{4}$/)",
-
+        ".write": "auth != null && (((!data.exists() || data.child('createdAt').val() < now - 43200000) && newData.child('hostId').val() === auth.uid && newData.child('players').child(auth.uid).exists()) || (newData.exists() && newData.child('class').isString() && $room.beginsWith(newData.child('class').val() + '-') && root.child('ownerClaims').child(newData.child('class').val()).child(auth.uid).exists() && (!data.exists() || (data.child('class').isString() && root.child('ownerClaims').child(data.child('class').val()).child(auth.uid).exists()) || data.child('createdAt').val() < now - 43200000)) || (!newData.exists() && data.child('class').isString() && root.child('ownerClaims').child(data.child('class').val()).child(auth.uid).exists()))",
+        ".validate": "$room.matches(/^[A-Z]{4}$/) || newData.child('class').isString()",
         "hostId": {
-          ".write": "auth != null && (data.val() === auth.uid || (newData.val() === auth.uid && root.child('rooms').child($room).child('players').child(auth.uid).child('online').val() === true && root.child('rooms').child($room).child('players').child(data.val()).child('online').val() !== true))"
+          ".write": "auth != null && (data.val() === auth.uid || (newData.val() === auth.uid && !data.parent().child('class').exists() && root.child('rooms').child($room).child('players').child(auth.uid).child('online').val() === true && root.child('rooms').child($room).child('players').child(data.val()).child('online').val() !== true) || (newData.val() === auth.uid && data.parent().child('class').isString() && root.child('ownerClaims').child(data.parent().child('class').val()).child(auth.uid).exists()))"
         },
-        "createdAt": { ".validate": "newData.isNumber()" },
-
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "class": {
+          ".validate": "newData.isString()"
+        },
+        "group": {
+          ".validate": "newData.isNumber()"
+        },
         "phase": {
           ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
           ".validate": "newData.val() === 'lobby' || newData.val() === 'playing' || newData.val() === 'result'"
         },
         "settings": {
           ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
-          "drawSec": { ".validate": "newData.isNumber() && newData.val() >= 15 && newData.val() <= 180" },
-          "guessSec": { ".validate": "newData.isNumber() && newData.val() >= 10 && newData.val() <= 120" }
+          "drawSec": {
+            ".validate": "newData.isNumber() && newData.val() >= 15 && newData.val() <= 180"
+          },
+          "guessSec": {
+            ".validate": "newData.isNumber() && newData.val() >= 10 && newData.val() <= 120"
+          }
         },
-        "order": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
+        "order": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid"
+        },
         "round": {
           ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
           ".validate": "newData.isNumber()"
         },
-        "roundKey": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
-        "assign": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
+        "roundKey": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid"
+        },
+        "assign": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid"
+        },
         "deadline": {
           ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
           ".validate": "newData.isNumber()"
         },
-        "resultView": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
-
+        "resultView": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid"
+        },
         "players": {
           "$uid": {
-            ".write": "auth != null && auth.uid === $uid && (data.exists() || root.child('rooms').child($room).child('phase').val() === 'lobby')",
+            ".write": "auth != null && ((auth.uid === $uid && (data.exists() || root.child('rooms').child($room).child('phase').val() === 'lobby')) || (!newData.exists() && root.child('rooms').child($room).child('hostId').val() === auth.uid))",
             ".validate": "newData.hasChildren(['name', 'joinedAt'])",
-            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 10" },
-            "online": { ".validate": "newData.isBoolean()" },
-            "joinedAt": { ".validate": "newData.isNumber()" },
-            "$other": { ".validate": false }
+            "name": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 10"
+            },
+            "online": {
+              ".validate": "newData.isBoolean()"
+            },
+            "joinedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
           }
         },
-
         "books": {
           ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
           "$b": {
@@ -59,7 +83,6 @@
             }
           }
         },
-
         "submitted": {
           ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
           "$r": {
@@ -69,8 +92,31 @@
             }
           }
         },
-
-        "$other": { ".validate": false }
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "classSecrets": {
+      "$code": {
+        ".write": "auth != null && !data.exists()",
+        ".validate": "newData.isString() && newData.val().length === 64 && $code.length >= 2 && $code.length <= 10 && !$code.contains('-')"
+      }
+    },
+    "ownerClaims": {
+      "$code": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.val() === root.child('classSecrets').child($code).val()"
+        }
+      }
+    },
+    "classes": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('ownerClaims').child($code).child(auth.uid).exists()",
+        ".validate": "$code.length >= 2 && $code.length <= 10 && !$code.contains('-')"
       }
     }
   }
