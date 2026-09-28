@@ -1,9 +1,10 @@
-// Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹) 에서 복사한 값으로 바꿔 주세요.
-// Realtime Database를 만든 뒤 표시되는 databaseURL도 꼭 넣어야 합니다.
+// Firebase 웹 앱 설정 (공개돼도 되는 값. 접근 제어는 database.rules.json 보안 규칙이 담당)
 export const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
-  databaseURL: 'https://YOUR_PROJECT_ID-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId: 'YOUR_PROJECT_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: 'AIzaSyDVQ-ge5WfXhl2BZSjIyn6tvNdfs5hq_70',
+  authDomain: 'telestrations-636b4.firebaseapp.com',
+  databaseURL: 'https://telestrations-636b4-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId: 'telestrations-636b4',
+  storageBucket: 'telestrations-636b4.firebasestorage.app',
+  messagingSenderId: '271317015395',
+  appId: '1:271317015395:web:13dc5881d242ecb7f2d156',
 };
