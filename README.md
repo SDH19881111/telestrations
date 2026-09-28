@@ -56,9 +56,8 @@ telestrations/
 
 1. [Google Cloud 콘솔 → IAM → 서비스 계정](https://console.cloud.google.com/iam-admin/serviceaccounts)에서 Firebase 프로젝트를 선택하고 서비스 계정을 만듭니다. 역할은 **Firebase 관리자(Firebase Admin)** 를 줍니다.
 2. 그 서비스 계정의 **키 → 키 추가 → JSON**으로 키 파일을 내려받습니다.
-3. GitHub 저장소 **Settings → Secrets and variables → Actions**에서
-   - Secrets 탭: `FIREBASE_SERVICE_ACCOUNT` = JSON 파일 내용 전체
-   - Variables 탭: `FIREBASE_PROJECT_ID` = Firebase 프로젝트 ID
+3. GitHub 저장소 **Settings → Secrets and variables → Actions → Secrets**에 `FIREBASE_SERVICE_ACCOUNT` = JSON 파일 내용 전체를 넣습니다.
+   (배포 대상은 `.firebaserc`의 프로젝트입니다. 다른 프로젝트로 보내려면 Variables에 `FIREBASE_PROJECT_ID`를 지정하세요.)
 4. **Actions → Deploy to Firebase → Run workflow**로 실행하거나 `main`에 푸시합니다.
 
 ### 직접 배포

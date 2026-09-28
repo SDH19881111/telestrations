@@ -1,8 +1,8 @@
 # main에 푸시하면 Firebase Hosting + Realtime Database 보안 규칙을 배포한다.
-# 필요한 설정 (저장소 Settings → Secrets and variables → Actions):
-#   Variables: FIREBASE_PROJECT_ID          (예: my-telestrations)
-#   Secrets:   FIREBASE_SERVICE_ACCOUNT     (서비스 계정 JSON 키 전체)
-# 둘 중 하나라도 없으면 배포 작업은 건너뛴다.
+# 필요한 설정 (저장소 Settings → Secrets and variables → Actions → Secrets):
+#   FIREBASE_SERVICE_ACCOUNT  (서비스 계정 JSON 키 전체)
+# 프로젝트는 .firebaserc 의 default. 다른 프로젝트로 보내려면 Variables에 FIREBASE_PROJECT_ID 지정.
+# 시크릿이 없으면 배포 단계는 건너뛴다.
 name: Deploy to Firebase
 
 on:
@@ -17,7 +17,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ vars.FIREBASE_PROJECT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,9 +38,10 @@ jobs:
           PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
         run: |
           if [ -z "$SA_JSON" ]; then
-            echo "::error::FIREBASE_SERVICE_ACCOUNT 시크릿이 없습니다."
-            exit 1
+            echo "::warning::FIREBASE_SERVICE_ACCOUNT 시크릿이 없어 배포를 건너뜁니다."
+            exit 0
           fi
+          PROJECT_ID="${PROJECT_ID:-$(node -p "JSON.parse(require('fs').readFileSync('.firebaserc','utf8')).projects.default")}"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           printf '%s' "$SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
           npx -y firebase-tools@15 deploy --only hosting,database --project "$PROJECT_ID" --non-interactive
