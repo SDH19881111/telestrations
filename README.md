@@ -50,6 +50,19 @@ telestrations/
 
 ## 배포
 
+### 자동 배포 (GitHub Actions)
+
+`main`에 푸시하면 `.github/workflows/deploy.yml`이 호스팅과 보안 규칙을 배포합니다. 처음 한 번만 설정하면 됩니다.
+
+1. [Google Cloud 콘솔 → IAM → 서비스 계정](https://console.cloud.google.com/iam-admin/serviceaccounts)에서 Firebase 프로젝트를 선택하고 서비스 계정을 만듭니다. 역할은 **Firebase 관리자(Firebase Admin)** 를 줍니다.
+2. 그 서비스 계정의 **키 → 키 추가 → JSON**으로 키 파일을 내려받습니다.
+3. GitHub 저장소 **Settings → Secrets and variables → Actions**에서
+   - Secrets 탭: `FIREBASE_SERVICE_ACCOUNT` = JSON 파일 내용 전체
+   - Variables 탭: `FIREBASE_PROJECT_ID` = Firebase 프로젝트 ID
+4. **Actions → Deploy to Firebase → Run workflow**로 실행하거나 `main`에 푸시합니다.
+
+### 직접 배포
+
 ```bash
 npm install -g firebase-tools   # 한 번만
 firebase login

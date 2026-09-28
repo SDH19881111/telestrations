@@ -1,0 +1,48 @@
+# main에 푸시하면 Firebase Hosting + Realtime Database 보안 규칙을 배포한다.
+# 필요한 설정 (저장소 Settings → Secrets and variables → Actions):
+#   Variables: FIREBASE_PROJECT_ID          (예: my-telestrations)
+#   Secrets:   FIREBASE_SERVICE_ACCOUNT     (서비스 계정 JSON 키 전체)
+# 둘 중 하나라도 없으면 배포 작업은 건너뛴다.
+name: Deploy to Firebase
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ vars.FIREBASE_PROJECT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check config
+        run: |
+          if grep -q "YOUR_API_KEY" js/firebase-config.js; then
+            echo "::error::js/firebase-config.js에 Firebase 웹 앱 설정값을 먼저 넣어 주세요."
+            exit 1
+          fi
+          node tests/rotation.test.mjs
+
+      - name: Deploy hosting + database rules
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+        run: |
+          if [ -z "$SA_JSON" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT 시크릿이 없습니다."
+            exit 1
+          fi
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          printf '%s' "$SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx -y firebase-tools@15 deploy --only hosting,database --project "$PROJECT_ID" --non-interactive
+          echo "배포 완료: https://$PROJECT_ID.web.app" >> "$GITHUB_STEP_SUMMARY"
