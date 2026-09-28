@@ -70,6 +70,15 @@ function me() {
   return { i, N, r, b: bookFor(i, r, N), type: pageType(r, N) };
 }
 
+/**
+ * 이 화면이 방장 역할(시작·진행·발표 넘기기)을 하는지.
+ * 수업 방은 선생님 화면만 진행한다 — 같은 브라우저에서 선생님 화면과 학생 화면을 같이 열면
+ * 둘이 같은 사용자로 인식되는데, 이때 학생 화면이 방장처럼 행동하지 않게 한다.
+ */
+function actsAsHost(room) {
+  return !!room && room.hostId === state.uid && !room.class;
+}
+
 function hasSubmitted() {
   const { room, uid } = state;
   return !!(room.submitted && room.submitted[room.round] && room.submitted[room.round][uid]) ||
@@ -110,7 +119,7 @@ function onRoom(room) {
   if (room.phase !== 'playing') state.sentRound = null;
   maybeClaimHost(state.code, room, state.uid);
   render();
-  if (room.hostId === state.uid) hostTick(state.code, room);
+  if (actsAsHost(room)) hostTick(state.code, room);
 }
 
 // ---------- 렌더링 ----------
@@ -131,7 +140,7 @@ function render() {
   if (key === 'result') {
     if (changed) resetResult();
     show('screen-result');
-    renderResult({ room, uid: state.uid, code: state.code });
+    renderResult({ room, uid: actsAsHost(room) ? state.uid : null, code: state.code });
     return;
   }
   if (key.startsWith('wait')) { show('waiting'); updateHud(); return; }
@@ -153,7 +162,7 @@ function render() {
 
 function renderLobby() {
   const { room, uid, code } = state;
-  const isHost = room.hostId === uid;
+  const isHost = actsAsHost(room);
   const isClass = !!room.class;
   $('#lobby-code').textContent = isClass ? `${room.group}모둠` : code;
   $('#lobby-code-label').textContent = isClass ? `수업 ${room.class}` : '방 코드';
@@ -332,7 +341,7 @@ function tick() {
   if (!room || room.phase !== 'playing') return;
   updateHud();
   if (me() && !hasSubmitted() && serverNow() >= room.deadline) submitCurrent(true);
-  if (room.hostId === state.uid) hostTick(state.code, room);
+  if (actsAsHost(room)) hostTick(state.code, room);
 }
 
 // ---------- 그림판 도구 ----------
@@ -477,6 +486,7 @@ function bindEvents() {
   $('#set-guess').addEventListener('change', (e) => updateSettings(state.code, { guessSec: Number(e.target.value) }));
 
   $('#btn-start').addEventListener('click', async () => {
+    if (!actsAsHost(state.room)) return;
     try { await startGame(state.code, state.room, state.words); } catch (e) { toast(e.message || '시작하지 못했어요.'); }
   });
 
@@ -488,7 +498,7 @@ function bindEvents() {
   $('#word-custom-ok').addEventListener('click', () => pickWord($('#word-custom').value));
   onEnter($('#word-custom'), () => pickWord($('#word-custom').value));
 
-  $('#result-lobby').addEventListener('click', () => backToLobby(state.code));
+  $('#result-lobby').addEventListener('click', () => { if (actsAsHost(state.room)) backToLobby(state.code); });
 }
 
 // ---------- 시작 ----------

@@ -95,6 +95,21 @@ const denied = await kids[1].page.evaluate(async (id) => {
 assert.ok(denied, 'student could take host');
 console.log('student host takeover denied');
 
+// 선생님 브라우저에서 학생 화면을 열면 같은 사용자로 인식된다 → 그래도 학생 화면에 시작 버튼이 나오면 안 된다
+// (나오면 학생 화면이 기본 제시어로 게임을 시작해 버림)
+const sameBrowser = await teacher.ctx.newPage();
+sameBrowser.on('dialog', (d) => d.accept());
+await sameBrowser.goto(`${ORIGIN}/?emulator=1`);
+await sameBrowser.fill('#home-name', '선생님탭');
+await sameBrowser.fill('#home-code', CLASS);
+await sameBrowser.click('#btn-join');
+await sameBrowser.locator('#group-list button', { hasText: '2모둠' }).click();
+await sameBrowser.locator('#screen-lobby').waitFor({ state: 'visible' });
+assert.equal(await sameBrowser.locator('#btn-start').isVisible(), false, 'student tab in teacher browser shows start button');
+await sameBrowser.click('#btn-leave');
+await sameBrowser.close();
+console.log('student tab in teacher browser cannot start the game');
+
 await until(async () => (await teacher.page.locator('.t-room .players li').count()) === 7, 10000, 'teacher sees kids');
 await teacher.page.screenshot({ path: `${SHOTS}/class-teacher-lobby.png`, fullPage: true });
 
