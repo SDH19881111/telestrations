@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffcf4d">
+  <title>텔레스트레이션</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">✏️ 텔레스트레이션</div>
+    <div id="hud" class="hud" hidden>
+      <span id="hud-round"></span>
+      <span id="hud-count"></span>
+      <span id="hud-timer" class="timer"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. 홈: 닉네임 + 방 만들기 / 코드로 입장 -->
+    <section id="screen-home" class="screen card">
+      <h1>그리고, 맞히고, 웃고!</h1>
+      <p class="muted">4~10명이 스케치북을 돌리며 그림과 추측을 이어 가는 게임이에요.</p>
+      <div id="config-warning" class="notice" hidden>
+        <code>js/firebase-config.js</code>에 Firebase 설정값을 넣어야 온라인 플레이가 돼요. README를 참고해 주세요.
+      </div>
+      <label class="field">
+        <span>닉네임</span>
+        <input id="home-name" maxlength="10" autocomplete="nickname" placeholder="예: 덕환">
+      </label>
+      <button id="btn-create" class="btn primary big">방 만들기</button>
+      <div class="divider"><span>또는</span></div>
+      <div class="row">
+        <input id="home-code" class="code-input" maxlength="4" placeholder="ABCD" autocapitalize="characters" autocomplete="off" spellcheck="false">
+        <button id="btn-join" class="btn">입장</button>
+      </div>
+      <p id="home-error" class="error" role="alert"></p>
+    </section>
+
+    <!-- 2. 로비 -->
+    <section id="screen-lobby" class="screen card" hidden>
+      <div class="room-code-box">
+        <span class="muted">방 코드</span>
+        <div id="lobby-code" class="room-code"></div>
+        <button id="btn-share" class="btn small">🔗 초대 링크 복사</button>
+      </div>
+      <p id="lobby-banner" class="notice" hidden></p>
+      <h2>참가자 <span id="lobby-count" class="muted"></span></h2>
+      <ul id="lobby-players" class="players"></ul>
+      <div class="settings">
+        <label>그리기 시간
+          <select id="set-draw">
+            <option value="30">30초</option><option value="45">45초</option><option value="60">60초</option>
+            <option value="90">90초</option><option value="120">120초</option>
+          </select>
+        </label>
+        <label>추측 시간
+          <select id="set-guess">
+            <option value="15">15초</option><option value="20">20초</option><option value="30">30초</option>
+            <option value="45">45초</option><option value="60">60초</option>
+          </select>
+        </label>
+      </div>
+      <button id="btn-start" class="btn primary big">게임 시작</button>
+      <p id="lobby-hint" class="muted center"></p>
+      <button id="btn-leave" class="btn ghost">방 나가기</button>
+    </section>
+
+    <!-- 3. 제시어 쓰기 (홀수 인원 1라운드) -->
+    <section id="screen-word" class="screen card" hidden>
+      <h2>제시어를 적어 주세요</h2>
+      <p class="muted">다음 사람이 이 단어를 그림으로 그려요. 너무 어렵지 않게!</p>
+      <input id="word-input" maxlength="20" placeholder="예: 우주에 간 고양이" autocomplete="off">
+      <button id="word-submit" class="btn primary big">완료</button>
+    </section>
+
+    <!-- 4. 그리기 -->
+    <section id="screen-draw" class="screen" hidden>
+      <div id="word-pick" class="card" hidden>
+        <h2>그릴 제시어를 고르세요</h2>
+        <div id="word-choices" class="choices"></div>
+        <div class="row">
+          <input id="word-custom" maxlength="20" placeholder="직접 쓰기" autocomplete="off">
+          <button id="word-custom-ok" class="btn">확정</button>
+        </div>
+      </div>
+      <div id="draw-area">
+        <div class="prompt"><span class="muted">그릴 것</span> <strong id="draw-prompt"></strong></div>
+        <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+        <div class="toolbar">
+          <div id="colors" class="colors"></div>
+          <div class="tools">
+            <div id="sizes" class="sizes"></div>
+            <button id="tool-eraser" class="tool" title="지우개" aria-label="지우개">🧽</button>
+            <button id="tool-undo" class="tool" title="되돌리기" aria-label="되돌리기">↶</button>
+            <button id="tool-clear" class="tool" title="전체 지우기" aria-label="전체 지우기">🗑</button>
+          </div>
+        </div>
+        <button id="draw-submit" class="btn primary big">완료</button>
+      </div>
+    </section>
+
+    <!-- 5. 추측 쓰기 -->
+    <section id="screen-guess" class="screen card" hidden>
+      <h2>이 그림은 무엇일까요?</h2>
+      <div class="guess-image"><img id="guess-img" alt="앞사람의 그림"><div id="guess-empty" class="muted" hidden>(앞사람이 그림을 못 그렸어요. 마음대로 적어 주세요!)</div></div>
+      <input id="guess-input" maxlength="30" placeholder="정답을 적어 주세요" autocomplete="off">
+      <button id="guess-submit" class="btn primary big">완료</button>
+    </section>
+
+    <!-- 6. 결과 -->
+    <section id="screen-result" class="screen" hidden>
+      <div class="card">
+        <div id="result-tabs" class="tabs"></div>
+        <h2 id="result-title"></h2>
+        <p id="result-hint" class="muted"></p>
+      </div>
+      <div id="result-pages" class="pages"></div>
+      <div class="result-controls">
+        <button id="result-prev" class="btn">◀ 이전</button>
+        <button id="result-next" class="btn primary">다음 장 ▶</button>
+      </div>
+      <div class="result-controls">
+        <button id="result-follow" class="btn ghost"></button>
+        <button id="result-lobby" class="btn ghost">🔁 로비로 (새 게임)</button>
+      </div>
+    </section>
+
+    <!-- 제출 후 대기 -->
+    <section id="waiting" class="screen card center" hidden>
+      <div class="big-emoji">⏳</div>
+      <h2>제출 완료!</h2>
+      <p class="muted">다른 사람들을 기다리는 중이에요.</p>
+      <p id="waiting-count" class="count"></p>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

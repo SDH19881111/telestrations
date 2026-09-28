@@ -1,0 +1,27 @@
+{
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "database.rules.json",
+      "README.md",
+      "tests/**",
+      "package.json",
+      "package-lock.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      { "source": "**/*.@(js|css|html|json)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "database": { "port": 9000 },
+    "hosting": { "port": 5000 },
+    "ui": { "enabled": false }
+  }
+}

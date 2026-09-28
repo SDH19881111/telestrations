@@ -1,0 +1,77 @@
+{
+  "rules": {
+    "rooms": {
+      "$room": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || data.child('createdAt').val() < now - 43200000) && newData.child('hostId').val() === auth.uid && newData.child('players').child(auth.uid).exists()",
+        ".validate": "$room.matches(/^[A-Z]{4}$/)",
+
+        "hostId": {
+          ".write": "auth != null && (data.val() === auth.uid || (newData.val() === auth.uid && root.child('rooms').child($room).child('players').child(auth.uid).child('online').val() === true && root.child('rooms').child($room).child('players').child(data.val()).child('online').val() !== true))"
+        },
+        "createdAt": { ".validate": "newData.isNumber()" },
+
+        "phase": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
+          ".validate": "newData.val() === 'lobby' || newData.val() === 'playing' || newData.val() === 'result'"
+        },
+        "settings": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
+          "drawSec": { ".validate": "newData.isNumber() && newData.val() >= 15 && newData.val() <= 180" },
+          "guessSec": { ".validate": "newData.isNumber() && newData.val() >= 10 && newData.val() <= 120" }
+        },
+        "order": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
+        "round": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
+          ".validate": "newData.isNumber()"
+        },
+        "roundKey": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
+        "assign": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
+        "deadline": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
+          ".validate": "newData.isNumber()"
+        },
+        "resultView": { ".write": "auth != null && data.parent().child('hostId').val() === auth.uid" },
+
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && (data.exists() || root.child('rooms').child($room).child('phase').val() === 'lobby')",
+            ".validate": "newData.hasChildren(['name', 'joinedAt'])",
+            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 10" },
+            "online": { ".validate": "newData.isBoolean()" },
+            "joinedAt": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        "books": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
+          "$b": {
+            "word": {
+              ".write": "auth != null && root.child('rooms').child($room).child('roundKey').val() === '0' && root.child('rooms').child($room).child('assign').child(auth.uid).val() === $b && root.child('rooms').child($room).child('phase').val() === 'playing'",
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20"
+            },
+            "pages": {
+              "$r": {
+                ".write": "auth != null && root.child('rooms').child($room).child('phase').val() === 'playing' && root.child('rooms').child($room).child('roundKey').val() === $r && root.child('rooms').child($room).child('assign').child(auth.uid).val() === $b && newData.child('by').val() === auth.uid",
+                ".validate": "newData.hasChildren(['by', 'type', 'content']) && newData.child('content').isString() && ((newData.child('type').val() === 'draw' && (newData.child('content').val() === '' || (newData.child('content').val().beginsWith('data:image/') && newData.child('content').val().length < 400000))) || ((newData.child('type').val() === 'guess' || newData.child('type').val() === 'word') && newData.child('content').val().length <= 30))"
+              }
+            }
+          }
+        },
+
+        "submitted": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
+          "$r": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('roundKey').val() === $r && root.child('rooms').child($room).child('phase').val() === 'playing'",
+              ".validate": "newData.val() === true"
+            }
+          }
+        },
+
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}
