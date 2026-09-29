@@ -80,6 +80,21 @@ telestrations/
    (배포 대상은 `.firebaserc`의 프로젝트입니다. 다른 프로젝트로 보내려면 Variables에 `FIREBASE_PROJECT_ID`를 지정하세요.)
 4. **Actions → Deploy to Firebase → Run workflow**로 실행하거나 `main`에 푸시합니다.
 
+### 수업 데이터 (`data/classes.json`)
+
+선생님이 만든 수업 목록·설정·제시어는 저장소의 `data/classes.json`에도 둡니다. 목록 보기: `npm run classes`
+
+```jsonc
+{
+  "2727": { "groups": 6, "leaderStart": true, "settings": { "drawSec": 60, "guessSec": 30 }, "words": ["입춘", "우수"] }
+}
+```
+
+- **저장소 → Firebase**: 이 파일을 고쳐 `main`에 푸시하면 배포 워크플로가 파일에 적힌 수업의 `groups`·`leaderStart`·`settings`·`words`를 Firebase에 덮어씁니다. 파일이 바뀐 푸시(또는 수동 실행)일 때만 반영하므로, 코드만 고친 푸시는 선생님 화면에서 바꾼 설정을 건드리지 않습니다. `words`를 `[]`로 두면 기본 제시어를 씁니다.
+- **Firebase → 저장소**: 선생님 화면에서 바꾼 내용은 **Actions → Export classes from Firebase**(매일 03:00 자동, 수동 실행 가능)가 이 파일로 커밋해 가져옵니다. 파일을 고치기 전에 한 번 돌리거나 `git pull` 하세요.
+- 파일에 새 수업 코드를 추가하면 비밀번호 없이 만들어지고, **처음 로그인한 선생님의 비밀번호**로 정해집니다. 파일에서 수업을 지워도 Firebase의 수업은 지워지지 않습니다(콘솔에서 삭제).
+- 비밀번호·진행 상태(`open`·`openedAt`)·게임 기록(`rooms`)은 저장소에 올리지 않습니다.
+
 ### 직접 배포
 
 ```bash

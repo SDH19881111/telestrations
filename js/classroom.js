@@ -27,9 +27,15 @@ export async function isOwner(code, uid) {
   }
 }
 
-/** 기존 수업에 로그인. 비밀번호가 다르면 보안 규칙이 거부한다. */
+/** 기존 수업에 로그인. 비밀번호가 다르면 보안 규칙이 거부한다.
+ *  저장소(data/classes.json)로 먼저 만들어진 수업은 비밀번호가 없으므로, 처음 들어온 선생님의 비밀번호로 정해진다. */
 export async function loginClass(code, password, uid) {
   const hash = await hashPassword(code, password);
+  try {
+    await set(ref(db, `classSecrets/${code}`), hash);
+  } catch {
+    // 이미 비밀번호가 있는 수업 — 아래에서 비교한다
+  }
   try {
     await set(ref(db, `ownerClaims/${code}/${uid}`), hash);
   } catch {

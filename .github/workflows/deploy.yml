@@ -1,4 +1,5 @@
-# main에 푸시하면 Firebase Hosting + Realtime Database 보안 규칙을 배포한다.
+# main에 푸시하면 Firebase Hosting + Realtime Database 보안 규칙을 배포하고,
+# data/classes.json(수업 목록·설정·제시어)을 Firebase /classes에 반영한다.
 # 필요한 설정 (저장소 Settings → Secrets and variables → Actions → Secrets):
 #   FIREBASE_SERVICE_ACCOUNT  (서비스 계정 JSON 키 전체)
 # 프로젝트는 .firebaserc 의 default. 다른 프로젝트로 보내려면 Variables에 FIREBASE_PROJECT_ID 지정.
@@ -19,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -31,11 +34,13 @@ jobs:
             exit 1
           fi
           node tests/rotation.test.mjs
+          node scripts/classes.mjs sync "$RUNNER_TEMP/classes-patch.json"
 
       - name: Deploy hosting + database rules
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          BEFORE: ${{ github.event.before }}
         run: |
           if [ -z "$SA_JSON" ]; then
             echo "::warning::FIREBASE_SERVICE_ACCOUNT 시크릿이 없어 배포를 건너뜁니다."
@@ -45,4 +50,12 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           printf '%s' "$SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
           npx -y firebase-tools@15 deploy --only hosting,database --project "$PROJECT_ID" --non-interactive
-          echo "배포 완료: https://$PROJECT_ID.web.app" >> "$GITHUB_STEP_SUMMARY"
+          # data/classes.json이 바뀐 푸시(또는 수동 실행)일 때만, 파일에 적힌 수업의 설정·제시어를 덮어쓴다.
+          # 코드만 고친 푸시가 선생님 화면에서 바꾼 설정을 되돌리지 않도록. 진행 상태·비밀번호·파일에 없는 수업은 그대로.
+          if [ "${{ github.event_name }}" != "push" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null || ! git diff --quiet "$BEFORE" HEAD -- data/classes.json; then
+            npx -y firebase-tools@15 database:update /classes "$RUNNER_TEMP/classes-patch.json" --project "$PROJECT_ID" --force
+            echo "수업 데이터 반영함" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "data/classes.json 변경 없음 — 수업 데이터는 건드리지 않음" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          { echo "배포 완료: https://$PROJECT_ID.web.app"; echo; echo '```'; node scripts/classes.mjs list; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

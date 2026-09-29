@@ -1,0 +1,45 @@
+# 선생님 화면에서 바꾼 수업 설정을 저장소로 가져온다 (Firebase /classes → data/classes.json 커밋).
+# Actions → "Export classes from Firebase" → Run workflow 로 실행. 매일 새벽에도 한 번 돈다.
+name: Export classes from Firebase
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * *'   # 매일 03:00 KST
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Firebase /classes → data/classes.json
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+        run: |
+          PROJECT_ID="${PROJECT_ID:-$(node -p "JSON.parse(require('fs').readFileSync('.firebaserc','utf8')).projects.default")}"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          printf '%s' "$SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx -y firebase-tools@15 database:get /classes --project "$PROJECT_ID" -o "$RUNNER_TEMP/remote.json"
+          node scripts/classes.mjs export "$RUNNER_TEMP/remote.json"
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- data/classes.json; then echo "변경 없음"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data/classes.json
+          git commit -m "data: Firebase 수업 설정 가져오기"
+          git push

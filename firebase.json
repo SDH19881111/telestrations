@@ -9,6 +9,8 @@
       "database.rules.json",
       "README.md",
       "tests/**",
+      "data/**",
+      "scripts/**",
       "package.json",
       "package-lock.json",
       "**/.*",
