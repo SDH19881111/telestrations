@@ -129,6 +129,13 @@ export class Sketch {
     this.onChange();
   }
 
+  /** 저장해 둔 동작 목록으로 되살린다 (튕겼다가 돌아왔을 때) */
+  load(actions) {
+    this.actions = Array.isArray(actions) ? actions : [];
+    this.current = null;
+    this.redraw();
+  }
+
   isEmpty() {
     const last = this.actions[this.actions.length - 1];
     return !last || !!last.clear;

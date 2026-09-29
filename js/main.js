@@ -11,6 +11,7 @@ import {
 } from './game.js';
 import { Sketch, COLORS, SIZES } from './canvas.js';
 import { renderResult, resetResult } from './result.js';
+import { keepScreenOn } from './wakelock.js';
 
 const $ = (sel) => document.querySelector(sel);
 const SCREENS = ['screen-home', 'screen-lobby', 'screen-word', 'screen-draw', 'screen-guess', 'screen-result', 'waiting'];
@@ -28,6 +29,47 @@ const state = {
 };
 
 let sketch = null;
+
+// ---------- 그리던 그림 임시 저장 ----------
+// 제출 전 그림은 이 기기에만 있으므로, 튕기거나 새로고침해도 이어 그릴 수 있게 획을 localStorage에 둔다.
+const DRAFT_PREFIX = 'tele.draft.';
+let draftKey = null; // 지금 그리는 페이지의 저장 키 (방·라운드·스케치북)
+
+function saveDraft() {
+  if (!draftKey) return;
+  try {
+    if (sketch.isEmpty()) localStorage.removeItem(draftKey);
+    else localStorage.setItem(draftKey, JSON.stringify(sketch.actions));
+  } catch { /* 저장 공간이 없으면 포기 */ }
+}
+
+function loadDraft(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
+}
+
+/** 지금 그리는 페이지 말고는 모두 지운다 (key가 없으면 전부) */
+function clearDrafts(keep = null) {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(DRAFT_PREFIX) && k !== keep) localStorage.removeItem(k);
+    }
+  } catch { /* 무시 */ }
+}
+
+/** 그리기 화면에 들어올 때: 캔버스를 비우고, 같은 페이지를 그리던 기록이 있으면 되살린다 */
+function startDrawing(m) {
+  const key = `${DRAFT_PREFIX}${state.code}:${state.room.createdAt}:${state.room.order.join()}:${m.r}:${m.b}`;
+  const saved = loadDraft(key);
+  draftKey = null; // reset()이 부르는 저장이 기록을 지우지 않도록
+  sketch.reset();
+  draftKey = key;
+  clearDrafts(key);
+  if (saved && saved.length) {
+    sketch.load(saved);
+    toast('그리던 그림을 되살렸어요.');
+  }
+}
 
 // ---------- 공통 ----------
 function show(id) {
@@ -96,6 +138,7 @@ function enterRoom(code) {
   setUrlRoom(code);
   localStorage.setItem('tele.name', myName());
   startPresence(code, state.uid);
+  keepScreenOn(true);
   state.unsub = onValue(roomRef(code), (snap) => onRoom(snap.val()), (err) => {
     console.error(err);
     exitRoom('방 정보를 불러오지 못했어요.');
@@ -117,6 +160,8 @@ function exitRoom(message = '') {
   state.leaderStart = false;
   if (state.unsub) state.unsub();
   stopPresence();
+  keepScreenOn(false);
+  $('#stall').hidden = true;
   Object.assign(state, { code: null, room: null, unsub: null, screenKey: '', sentRound: null });
   setUrlRoom(null);
   $('#hud').hidden = true;
@@ -131,9 +176,13 @@ function onRoom(room) {
   if (!room.players || !room.players[state.uid]) return exitRoom(room.class ? '모둠에서 나왔어요. 다시 들어올 수 있어요.' : '방에서 나왔어요.');
   state.room = room;
   if (room.class) watchLeaderStart(room.class);
-  if (room.phase !== 'playing') state.sentRound = null;
+  if (room.phase !== 'playing') {
+    state.sentRound = null;
+    if (draftKey !== '') { draftKey = ''; clearDrafts(); } // 게임이 끝나면 한 번만 정리 (다음 판에 옛 그림이 살아나지 않게)
+  }
   maybeClaimHost(state.code, room, state.uid);
   render();
+  updateStall(room);
   if (actsAsHost(room)) hostTick(state.code, room);
 }
 
@@ -167,7 +216,7 @@ function render() {
       if (!renderWordChoices(m)) $('#word-input').focus();
     }
   } else if (m.type === 'draw') {
-    if (changed) { sketch.reset(); $('#word-custom').value = ''; show('screen-draw'); }
+    if (changed) { startDrawing(m); $('#word-custom').value = ''; show('screen-draw'); }
     renderDraw(m);
   } else {
     if (changed) { $('#guess-input').value = ''; show('screen-guess'); renderGuess(m); $('#guess-input').focus(); }
@@ -349,6 +398,7 @@ async function submitCurrent(auto = false, chosen = null) {
   render();
   try {
     await submitPage(state.code, room, state.uid, content);
+    if (m.type === 'draw') { draftKey = null; clearDrafts(); }
     if (auto) toast('시간이 다 돼서 자동으로 제출했어요.');
   } catch (e) {
     console.error(e);
@@ -368,10 +418,24 @@ async function pickWord(word) {
   }
 }
 
+// 마감이 지났는데도 다음 차례로 넘어가지 않을 때 (보통 2초 안에 넘어간다): 진행하는 화면이 꺼진 경우
+const STALL_MS = 6000;
+function updateStall(room) {
+  const stalled = !!room && room.phase === 'playing' && !!room.deadline && serverNow() > room.deadline + STALL_MS;
+  const el = $('#stall');
+  if (stalled) {
+    el.textContent = room.class
+      ? '⚠️ 선생님 화면이 꺼져 있어 다음 차례로 넘어가지 않아요. 선생님께 알려 주세요!'
+      : '⚠️ 방장의 연결을 기다리는 중이에요…';
+  }
+  el.hidden = !stalled;
+}
+
 // 250ms마다: 타이머 표시, 마감 시 자동 제출, 방장 진행 체크
 function tick() {
   const { room } = state;
   if (room && room.phase === 'lobby' && room.startRequest && state.screenKey === 'lobby') renderLobby(); // 시작 요청 대기 안내 갱신
+  updateStall(room);
   if (!room || room.phase !== 'playing') return;
   updateHud();
   if (me() && !hasSubmitted() && serverNow() >= room.deadline) submitCurrent(true);
@@ -381,6 +445,7 @@ function tick() {
 // ---------- 그림판 도구 ----------
 function setupToolbar() {
   sketch = new Sketch($('#canvas'));
+  sketch.onChange = saveDraft;
   const colors = $('#colors');
   const sizes = $('#sizes');
   const refresh = () => {
@@ -461,7 +526,7 @@ function bindEvents() {
     const cls = await getClass(classCode);
     if (!cls) throw new RoomError('그런 수업 코드가 없어요. 선생님께 다시 확인해 주세요.');
     if (!cls.open) throw new RoomError('아직 수업 방이 열리지 않았어요. 선생님을 기다려 주세요.');
-    const groups = await groupInfo(classCode, cls.groups);
+    const groups = await groupInfo(classCode, cls.groups, state.uid);
     $('#group-title').textContent = `${classCode} · 모둠을 고르세요`;
     const list = $('#group-list');
     list.innerHTML = '';
@@ -470,12 +535,14 @@ function bindEvents() {
       btn.className = 'btn choice group';
       const full = g.count >= MAX_PLAYERS;
       const playing = g.phase && g.phase !== 'lobby';
-      btn.disabled = !g.exists || full || playing;
+      // 게임 중이어도 내가 원래 있던 모둠이면 다시 들어갈 수 있다
+      btn.disabled = !g.exists || (!g.mine && (full || playing));
+      if (g.mine) btn.classList.add('mine');
       btn.innerHTML = '';
       const b = document.createElement('strong');
       b.textContent = `${g.n}모둠`;
       const small = document.createElement('small');
-      small.textContent = !g.exists ? '닫힘' : playing ? '게임 중' : full ? '꽉 찼어요' : `${g.count}명`;
+      small.textContent = !g.exists ? '닫힘' : g.mine ? (playing ? '게임 중 · 다시 들어가기' : '내 모둠') : playing ? '게임 중' : full ? '꽉 찼어요' : `${g.count}명`;
       btn.append(b, small);
       btn.addEventListener('click', guard(async () => {
         const name = requireName();

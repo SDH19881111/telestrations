@@ -102,8 +102,8 @@ export function kickPlayer(roomId, uid) {
   return remove(roomRef(roomId, `players/${uid}`));
 }
 
-/** 학생 화면: 모둠별 인원·상태 */
-export async function groupInfo(code, groups) {
+/** 학생 화면: 모둠별 인원·상태. mine: 내가 이미 그 모둠의 참가자인지 (튕겼다가 돌아온 경우) */
+export async function groupInfo(code, groups, uid) {
   const list = [];
   for (let n = 1; n <= groups; n++) {
     const room = (await get(roomRef(classRoomId(code, n)))).val();
@@ -112,6 +112,7 @@ export async function groupInfo(code, groups) {
       exists: !!room,
       count: room && room.players ? Object.keys(room.players).length : 0,
       phase: room ? room.phase : null,
+      mine: !!(room && room.players && room.players[uid]),
     });
   }
   return list;

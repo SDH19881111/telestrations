@@ -8,6 +8,7 @@ import {
 } from './classroom.js';
 import { startGame, hostTick, backToLobby, onlinePlayers, pageType } from './game.js';
 import { renderResult, resetResult } from './result.js';
+import { keepScreenOn } from './wakelock.js';
 
 const $ = (sel) => document.querySelector(sel);
 const STORE_KEY = 'tele.teacher.class';
@@ -109,6 +110,7 @@ async function login() {
 
 function logout() {
   leaveDashboard();
+  keepScreenOn(false);
   localStorage.removeItem(STORE_KEY);
   $('#t-dash').hidden = true;
   $('#t-present').hidden = true;
@@ -125,6 +127,7 @@ function leaveDashboard() {
 
 async function enterDashboard(code) {
   leaveDashboard();
+  keepScreenOn(true);
   state.code = code;
   localStorage.setItem(STORE_KEY, code);
   $('#t-login').hidden = true;
@@ -184,7 +187,11 @@ function subscribeRooms() {
       } else {
         delete state.rooms[id];
       }
-      if (room && room.class === state.code) handleStartRequest(id, room);
+      if (room && room.class === state.code) {
+        handleStartRequest(id, room);
+        // 제출이 들어올 때마다 바로 진행 여부를 확인한다. 창이 가려져 타이머가 느려져도 전원 제출이면 넘어가도록.
+        if (room.phase === 'playing' && room.hostId === state.uid) hostTick(id, room);
+      }
       renderRooms();
       renderControls();
       if (state.presenting === id) renderPresentation();
@@ -441,6 +448,13 @@ function bind() {
   $('#t-close').addEventListener('click', async () => {
     if (!confirm('모든 모둠 방을 닫고 수업을 끝낼까요? 학생들은 첫 화면으로 돌아가요.')) return;
     try { await closeRooms(state.code); toast('수업을 끝냈어요.'); } catch (e) { console.error(e); toast(errMsg(e)); }
+  });
+
+  // 수업 방의 라운드 진행은 이 화면이 맡으므로, 게임 중에 닫으려 하면 경고한다
+  window.addEventListener('beforeunload', (e) => {
+    if (!Object.values(state.rooms).some((r) => r.phase === 'playing')) return;
+    e.preventDefault();
+    e.returnValue = '';
   });
 
   $('#t-present-close').addEventListener('click', closePresentation);
