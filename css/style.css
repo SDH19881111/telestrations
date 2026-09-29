@@ -93,8 +93,35 @@ input:focus, select:focus { outline: none; border-color: var(--primary); }
 /* 그리기 */
 .prompt { background: var(--card); border-radius: 12px; padding: 10px 14px; box-shadow: var(--shadow); font-size: 18px; overflow-wrap: anywhere; }
 .prompt strong { font-size: 20px; }
-#draw-area { display: flex; flex-direction: column; gap: 10px; }
-.canvas-wrap { width: 100%; max-width: min(100%, 62dvh); margin: 0 auto; }
+/* 그리기 화면은 main의 폭 제한(640px)을 풀고, 캔버스를 화면 높이에 맞춰 최대한 키운다 */
+body.drawing main { max-width: none; padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+#draw-area {
+  display: grid; gap: 10px; justify-content: center;
+  grid-template-areas: "prompt" "canvas" "side";
+}
+#draw-area .prompt { grid-area: prompt; }
+.canvas-wrap { grid-area: canvas; }
+.draw-side { grid-area: side; display: flex; flex-direction: column; gap: 10px; }
+/* 세로 화면: 위(상단바·제시어)와 아래(도구·완료)를 뺀 높이만큼 */
+body.drawing .canvas-wrap {
+  width: max(280px, min(calc(100vw - 32px), calc(100vh - 270px)));
+  width: max(280px, min(calc(100vw - 32px), calc(100dvh - 270px)));
+}
+/* 가로 화면(태블릿·크롬북·전자칠판): 도구를 오른쪽으로 옮기고 캔버스는 거의 화면 높이만큼 */
+@media (orientation: landscape) and (min-width: 700px) {
+  #draw-area {
+    grid-template-columns: auto 230px; grid-template-rows: auto 1fr; align-items: start;
+    grid-template-areas: "canvas prompt" "canvas side";
+  }
+  body.drawing .canvas-wrap {
+    width: max(280px, min(calc(100vw - 32px - 240px), calc(100vh - 80px)));
+    width: max(280px, min(calc(100vw - 32px - 240px), calc(100dvh - 80px)));
+  }
+  .draw-side .toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .draw-side .colors, .draw-side .tools { display: grid; grid-template-columns: repeat(3, auto); justify-content: center; gap: 10px 14px; }
+  .draw-side .sizes { display: contents; }
+  .draw-side .tool { width: 44px; height: 44px; }
+}
 #canvas {
   display: block; width: 100%; aspect-ratio: 1; border-radius: 12px; background: #fff;
   box-shadow: var(--shadow); border: 2px solid var(--line);
@@ -157,7 +184,7 @@ input:focus, select:focus { outline: none; border-color: var(--primary); }
   .logo { font-size: 14px; }
 }
 
-#word-pick { display: flex; flex-direction: column; gap: 12px; }
+#word-pick { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 608px; margin: 0 auto; }
 
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .code-input::placeholder { letter-spacing: 0; font-weight: 400; }

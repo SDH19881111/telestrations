@@ -32,6 +32,7 @@ let sketch = null;
 // ---------- 공통 ----------
 function show(id) {
   for (const s of SCREENS) $('#' + s).hidden = s !== id;
+  document.body.classList.toggle('drawing', id === 'screen-draw');
 }
 
 let toastTimer = null;
