@@ -4,6 +4,7 @@ import { MIN_PLAYERS } from './room.js';
 
 const GRACE_MS = 2000;      // 마감 후 자동 제출을 기다리는 유예
 const PICK_EXTRA_SEC = 15;  // 짝수 인원 1라운드: 제시어 고르는 시간 추가
+const RECONNECT_WAIT_MS = 10000; // 연결이 끊긴 지 이만큼 안 된 사람은 (마감 전까지) 돌아오길 기다린다
 
 /** r라운드(0부터)의 페이지 종류. 마지막 페이지는 항상 'guess'. */
 export function pageType(r, N) {
@@ -124,9 +125,12 @@ async function advance(code, room) {
   for (let b = 0; b < N; b++) {
     const book = books[b] || {};
     if (!book.pages || !book.pages[r]) {
-      updates[`books/${b}/pages/${r}`] = {
-        by: order[writerIndex(b, r, N)], type: pageType(r, N), content: '', skipped: true,
-      };
+      const type = pageType(r, N);
+      const by = order[writerIndex(b, r, N)];
+      // 제시어를 고를 차례에 빠졌으면 후보 첫 번째로 채운다 (다음 사람이 빈 제시어를 받지 않게)
+      updates[`books/${b}/pages/${r}`] = type === 'word' && book.choices && book.choices.length
+        ? { by, type, content: book.choices[0] }
+        : { by, type, content: '', skipped: true };
     }
     if (r === 0 && N % 2 === 0 && !book.word) {
       updates[`books/${b}/word`] = (book.choices && book.choices[0]) || '(건너뜀)';
@@ -153,8 +157,13 @@ export function hostTick(code, room) {
   const r = room.round;
   const done = (room.submitted && room.submitted[r]) || {};
   const players = room.players || {};
-  const waiting = room.order.filter((uid) => players[uid] && players[uid].online && !done[uid]);
-  if (waiting.length === 0 || serverNow() > room.deadline + GRACE_MS) advance(code, room);
+  const now = serverNow();
+  // 방금 끊긴 사람(와이파이 순간 끊김 등)은 바로 건너뛰지 않고 잠깐 기다린다. 마감이 지나면 어차피 넘어간다.
+  const waiting = room.order.filter((uid) => {
+    const p = players[uid];
+    return p && !done[uid] && (p.online || (p.offAt && now - p.offAt < RECONNECT_WAIT_MS));
+  });
+  if (waiting.length === 0 || now > room.deadline + GRACE_MS) advance(code, room);
 }
 
 /** 내 제출: 페이지와 제출 표시를 한 번에 쓴다 */

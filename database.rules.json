@@ -67,6 +67,9 @@
             "joinedAt": {
               ".validate": "newData.isNumber()"
             },
+            "offAt": {
+              ".validate": "newData.isNumber()"
+            },
             "$other": {
               ".validate": false
             }

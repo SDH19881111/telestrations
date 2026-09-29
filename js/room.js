@@ -69,6 +69,8 @@ export async function joinRoom(code, uid, name) {
   const room = snap.val();
   if (!room) throw new RoomError('그런 방이 없어요. 코드를 확인해 주세요.');
   const players = room.players || {};
+  const taken = Object.entries(players).some(([id, p]) => id !== uid && p.name === name);
+  if (taken) throw new RoomError(`'${name}' 이름을 쓰는 사람이 이미 있어요. 성을 붙이거나 다른 이름으로 들어와 주세요.`);
   if (players[uid]) {
     // 재접속: 같은 사람으로 복귀
     await update(roomRef(code, `players/${uid}`), { name, online: true });
@@ -99,18 +101,20 @@ let presenceOff = null;
 
 export function startPresence(code, uid) {
   stopPresence();
+  const playerRef = roomRef(code, `players/${uid}`);
   const onlineRef = roomRef(code, `players/${uid}/online`);
   const off = onValue(ref(db, '.info/connected'), async (snap) => {
     if (snap.val() !== true) return;
     try {
-      await onDisconnect(onlineRef).set(false);
+      // 끊긴 시각도 남긴다: 방장이 잠깐 끊긴 사람을 조금 기다려 줄 수 있게
+      await onDisconnect(playerRef).update({ online: false, offAt: serverTimestamp() });
       // 플레이어가 아직 방에 있을 때만 online 복구 (보안 규칙이 name 없는 생성은 막음)
       await set(onlineRef, true);
     } catch (e) {
       console.warn('presence', e);
     }
   });
-  presenceOff = () => { off(); onDisconnect(onlineRef).cancel().catch(() => {}); };
+  presenceOff = () => { off(); onDisconnect(playerRef).cancel().catch(() => {}); };
 }
 
 export function stopPresence() {

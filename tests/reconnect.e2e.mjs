@@ -3,6 +3,8 @@
 // 2) 그리던 그림이 되살아남, 제출하면 임시 저장 삭제
 // 3) 방에 있는 동안 화면 꺼짐 방지(Wake Lock) 요청
 // 4) 게임 중 선생님 화면을 닫으려 하면 경고, 닫히면 학생 화면에 멈춤 안내 → 다시 열면 이어서 진행
+// 5) 잠깐 끊긴 학생은 바로 건너뛰지 않고 기다림  6) 제시어를 못 고르고 빠지면 후보 첫 번째로 채움
+// 7) 선생님 화면에 아직 안 낸 학생 이름  8) 같은 모둠에 같은 이름 입장 불가
 import { chromium } from 'playwright-core';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
@@ -100,14 +102,46 @@ for (let i = 0; i < 3; i++) {
 }
 for (const k of kids) assert.ok(await k.page.evaluate(() => window.__wl) >= 1, `${k.name} wake lock not requested`);
 console.log('3 kids joined; kid wake locks requested');
+const [k0, k1, k2] = kids;
+
+// 같은 이름으로는 못 들어온다
+const dup = await openPage(await newCtx('같은이름'), '?emulator=1');
+await dup.page.fill('#home-name', '학생1');
+await dup.page.fill('#home-code', CLASS);
+await dup.page.click('#btn-join');
+await dup.page.locator('#group-list button', { hasText: '1모둠' }).click();
+await until(async () => (await dup.page.locator('#home-error').textContent()).length > 0, 10000, 'dup name error');
+const dupMsg = await dup.page.locator('#home-error').textContent();
+assert.ok(dupMsg.includes('이미 있어요'), dupMsg);
+assert.equal(await screen(dup), 'screen-home');
+console.log('duplicate name blocked:', dupMsg);
+await dup.ctx.close();
 
 await teacher.page.click('#t-start-all');
 await until(async () => (await Promise.all(kids.map(screen))).every((s) => s === 'screen-word'), 10000, 'started (word round)');
-for (const k of kids) await k.page.locator('#word-screen-choices button').first().click();
+for (const k of [k0, k1]) await k.page.locator('#word-screen-choices button').first().click();
+
+// 학생2가 제시어를 고르기 전에 잠깐 끊김 → 선생님 화면에 표시, 게임은 바로 넘어가지 않고 기다린다
+const hint = () => teacher.page.locator('.t-room .t-room-hint').textContent();
+await until(async () => (await hint()).includes('학생2') && !(await hint()).includes('학생0'), 10000, 'teacher sees pending kid');
+console.log('teacher sees:', await hint());
+await k2.page.close();
+await until(async () => (await hint()).includes('학생2(연결 끊김)'), 10000, 'teacher sees disconnected kid');
+console.log('teacher sees:', await hint());
+await sleep(3000);
+assert.equal(await screen(k0), 'waiting', 'round advanced right after a brief disconnect');
+await openPage(k2, `?emulator=1&class=${encodeURIComponent(CLASS)}`);
+await k2.page.locator('#group-list button', { hasText: '1모둠' }).click();
+await until(async () => (await screen(k2)) === 'screen-word', 10000, 'k2 back on word screen');
+await k2.page.locator('#word-screen-choices button').first().click();
+console.log('briefly disconnected kid was waited for and rejoined');
 
 // ---------- 그리기 라운드: 학생0이 그리다가 튕김 ----------
 await until(async () => (await Promise.all(kids.map(screen))).every((s) => s === 'screen-draw'), 15000, 'draw round');
-const [k0, k1, k2] = kids;
+{
+  const h = await hint();
+  assert.ok(h.startsWith('아직 안 낸 학생') && ['학생0', '학생1', '학생2'].every((n) => h.includes(n)), h);
+}
 await draw(k0);
 const before = await inkPixels(k0);
 assert.ok(before > 0);
@@ -174,7 +208,25 @@ console.log('teacher reopened → game finished, stall notice gone');
 const entries = await k1.page.evaluate(() => document.querySelectorAll('#result-pages .entry').length);
 assert.ok(entries >= 1);
 
-// 정리: 게임이 끝났으니 경고 없이 수업 끝내기
+// ---------- 두 번째 판: 학생2가 제시어를 못 고르고 빠짐 → 후보 첫 번째로 채워짐 ----------
+await teacher.page.locator('.t-room [data-act="lobby"]').click();
+await until(async () => (await screen(k1)) === 'screen-lobby' && (await screen(k2)) === 'screen-lobby', 10000, 'back to lobby');
+await teacher.page.click('#t-start-all');
+await until(async () => (await Promise.all(kids.map(screen))).every((s) => s === 'screen-word'), 10000, 'game 2 word round');
+for (const k of [k0, k1]) await k.page.locator('#word-screen-choices button').first().click();
+const k2uid = await k2.page.evaluate(async () => (await import('./js/firebase.js')).auth.currentUser.uid);
+await k2.page.close();
+await until(async () => (await screen(k0)) === 'screen-draw', 25000, 'advanced after k2 left');
+const room = await teacher.page.evaluate(async (id) => {
+  const fb = await import('./js/firebase.js');
+  return (await fb.get(fb.roomRef(id))).val();
+}, `${CLASS}-1`);
+const k2book = Object.values(room.books).find((b) => b.owner === k2uid);
+assert.equal(k2book.pages[0].content, k2book.choices[0], `missing first word: ${JSON.stringify(k2book.pages[0])}`);
+assert.ok(!k2book.pages[0].skipped);
+console.log("left kid's first word auto-filled:", k2book.pages[0].content);
+
+// 정리: 수업 끝내기 (게임 중이라 확인창 → 수락)
 await teacher.page.click('#t-close');
 await until(async () => (await screen(k1)) === 'screen-home', 10000, 'class closed');
 

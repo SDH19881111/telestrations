@@ -305,8 +305,18 @@ function renderRooms() {
     const leaderText = state.cls && state.cls.leaderStart !== false && leader ? ` · 👑 모둠장 ${room.players[leader].name}` : '';
     card.querySelector('.t-room-hint').textContent = room.phase === 'lobby'
       ? (online < MIN_CLASS_PLAYERS ? `${MIN_CLASS_PLAYERS}명 이상이면 시작할 수 있어요 (지금 ${online}명, 최대 ${MAX_PLAYERS}명)` : `${online}명 준비 완료`) + leaderText
-      : '';
+      : room.phase === 'playing' ? pendingText(room) : '';
   }
+}
+
+/** 게임 중: 이번 차례를 아직 내지 않은 학생 (연결이 끊긴 학생은 따로 표시) */
+function pendingText(room) {
+  const done = (room.submitted && room.submitted[room.round]) || {};
+  const players = room.players || {};
+  const left = room.order.filter((uid) => players[uid] && !done[uid]);
+  if (!left.length) return '모두 냈어요 ✓';
+  const names = left.map((uid) => players[uid].name + (players[uid].online ? '' : '(연결 끊김)'));
+  return `아직 안 낸 학생: ${names.join(', ')}`;
 }
 
 /** 모둠장이 누른 '게임 시작' 요청을 선생님 설정으로 처리한다 */
