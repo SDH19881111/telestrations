@@ -89,6 +89,23 @@
       <div id="t-rooms" class="t-rooms"></div>
     </section>
 
+    <!-- 모둠 들여다보기 -->
+    <section id="t-watch" class="screen" hidden>
+      <div class="card stack">
+        <div class="row between">
+          <h2 id="t-watch-title"></h2>
+          <div class="row">
+            <span id="t-watch-badge" class="badge"></span>
+            <button id="t-watch-close" class="btn small">✕ 닫기</button>
+          </div>
+        </div>
+        <p class="muted small">이 화면을 열어 둔 동안 학생들이 그리는 중인 그림이 3초마다 보여요. 장난친 그림·답은 <strong>🙈 가리기</strong>로 지우면 다음 사람과 결과 발표에 나오지 않아요. <strong>🚫 강퇴</strong>한 학생은 모둠 방을 새로 열 때까지 이 모둠에 다시 못 들어오고, 남은 차례는 건너뛰어요.</p>
+      </div>
+      <div id="t-watch-players" class="w-players"></div>
+      <h2 id="t-watch-books-title">스케치북</h2>
+      <div id="t-watch-books" class="w-books"></div>
+    </section>
+
     <!-- 결과 발표 (전자칠판/TV) -->
     <section id="t-present" class="screen present" hidden>
       <div class="card">

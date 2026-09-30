@@ -33,7 +33,7 @@ function entryEl(room, e, idx) {
   if (e.skipped || !e.content) {
     const t = document.createElement('div');
     t.className = 'entry-text muted';
-    t.textContent = e.skipped ? '(건너뜀)' : '(빈 답)';
+    t.textContent = e.hidden ? '(선생님이 가렸어요)' : e.skipped ? '(건너뜀)' : '(빈 답)';
     div.appendChild(t);
   } else if (e.type === 'draw') {
     const img = document.createElement('img');
@@ -54,6 +54,12 @@ let lastRendered = '';
 
 export function resetResult() {
   freeView = null;
+  lastRendered = '';
+}
+
+/** 혼자 넘겨 보기로 시작 (학생 화면: 결과를 각자 자유롭게 보고 '준비 완료'를 누른다) */
+export function startFreeView(v) {
+  freeView = v;
   lastRendered = '';
 }
 
@@ -102,7 +108,7 @@ export function renderResult(ctx) {
   const entries = bookEntries(room, view.book);
   $('#result-title').textContent = `${nameOf(room, room.order[view.book])}의 스케치북 (${view.book + 1}/${N})`;
 
-  const key = `${view.book}:${view.step}:${freeView ? 'f' : 's'}:${entries.map((e) => (e.content || '').length).join()}`;
+  const key = `${view.book}:${view.step}:${freeView ? 'f' : 's'}:${entries.map((e) => (e.content || '').length + (e.hidden ? 'h' : '')).join()}`;
   if (key !== lastRendered) {
     const list = $('#result-pages');
     // 같은 스케치북에서 한 장 넘길 때만 새 장에 등장 애니메이션

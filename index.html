@@ -139,6 +139,12 @@
         <button id="result-prev" class="btn">◀ 이전</button>
         <button id="result-next" class="btn primary">다음 장 ▶</button>
       </div>
+      <div id="result-ready-box" class="card ready-box">
+        <p id="result-ready-info" class="ready-info"></p>
+        <button id="result-ready" class="btn big">✅ 다 봤어요! 준비 완료</button>
+        <button id="result-start" class="btn primary big" hidden>▶ 다음 판 시작</button>
+        <p id="result-ready-hint" class="muted center small"></p>
+      </div>
       <div class="result-controls">
         <button id="result-follow" class="btn ghost"></button>
         <button id="result-lobby" class="btn ghost">🔁 로비로 (새 게임)</button>
@@ -153,6 +159,15 @@
       <p id="waiting-count" class="count"></p>
     </section>
   </main>
+
+  <div id="warn" class="warn-overlay" role="alertdialog" aria-labelledby="warn-title" hidden>
+    <div class="card center stack">
+      <div class="big-emoji still">⚠️</div>
+      <h2 id="warn-title">선생님 알림</h2>
+      <p id="warn-msg" class="warn-msg"></p>
+      <button id="warn-ok" class="btn primary big">알겠어요</button>
+    </div>
+  </div>
 
   <div id="toast" class="toast" hidden></div>
 

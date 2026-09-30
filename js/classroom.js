@@ -1,5 +1,5 @@
 // 수업(교사) 모드: 수업 코드·비밀번호, 모둠 방 열기/닫기, 학생 강퇴
-import { ref, db, get, set, update, remove, serverNow, roomRef } from './firebase.js';
+import { ref, db, get, set, update, remove, onDisconnect, serverNow, roomRef } from './firebase.js';
 import { DEFAULT_SETTINGS, classRoomId, RoomError } from './room.js';
 
 export const MAX_GROUPS = 8;
@@ -72,6 +72,7 @@ export async function openRooms(code, cls, uid) {
       settings: { ...cls.settings },
     });
   }
+  for (let n = 1; n <= cls.groups; n++) await clearLive(classRoomId(code, n));
   // 모둠 수를 줄였다면 남는 방 정리
   for (let n = cls.groups + 1; n <= MAX_GROUPS; n++) {
     const id = classRoomId(code, n);
@@ -84,7 +85,10 @@ export async function closeRooms(code) {
   await update(classRef(code), { open: false });
   for (let n = 1; n <= MAX_GROUPS; n++) {
     const id = classRoomId(code, n);
-    if ((await get(roomRef(id, 'class'))).exists()) await remove(roomRef(id));
+    if ((await get(roomRef(id, 'class'))).exists()) {
+      await clearLive(id); // 방이 사라지면 보안 규칙상 지울 수 없으므로 먼저
+      await remove(roomRef(id));
+    }
   }
 }
 
@@ -116,4 +120,81 @@ export async function groupInfo(code, groups, uid) {
     });
   }
   return list;
+}
+
+// ---------- 모둠 들여다보기 · 제재 ----------
+const liveRef = (roomId, uid = '') => ref(db, `live/${roomId}${uid ? '/' + uid : ''}`);
+export { liveRef };
+
+function clearLive(roomId) {
+  return remove(liveRef(roomId)).catch(() => {});
+}
+
+/** 선생님이 이 모둠을 보고 있는 동안만 학생 화면이 그리는 중 미리보기를 올린다 (창을 닫으면 자동 해제) */
+export async function setWatching(roomId, on) {
+  const r = roomRef(roomId, 'watch');
+  if (on) {
+    await onDisconnect(r).remove();
+    await set(r, true);
+  } else {
+    await onDisconnect(r).cancel().catch(() => {});
+    await remove(r).catch(() => {});
+  }
+}
+
+export function warnPlayer(roomId, uid, msg) {
+  return set(roomRef(roomId, `warn/${uid}`), { at: serverNow(), msg: msg.slice(0, 100) });
+}
+
+/**
+ * 강퇴: 그 수업(모둠 방을 새로 열 때까지) 동안 이 모둠에 다시 못 들어온다 (같은 이름으로도).
+ * 게임 중이면 자리는 남겨 두고 연결 끊긴 학생처럼 차례를 건너뛴다 — 스케치북 순서가 깨지지 않게.
+ */
+export async function banPlayer(roomId, room, uid) {
+  const p = (room.players || {})[uid];
+  const u = { [`banned/${uid}`]: p ? p.name : '?', [`ready/${uid}`]: null, [`warn/${uid}`]: null };
+  if (room.phase === 'lobby') u[`players/${uid}`] = null;
+  else if (p) { u[`players/${uid}/online`] = false; u[`players/${uid}/offAt`] = 0; }
+  await update(roomRef(roomId), u);
+  await remove(liveRef(roomId, uid)).catch(() => {});
+}
+
+/** 부적절한 그림·답 가리기: 다음 사람과 결과 화면에 보이지 않게 내용을 지운다 */
+export function hidePage(roomId, b, r) {
+  return update(roomRef(roomId, `books/${b}/pages/${r}`), { content: '', hidden: true });
+}
+
+/**
+ * 자리 옮기기: 기기가 바뀌어 새 uid로 들어온 학생에게 원래 자리(이름이 같은 연결 끊긴 참가자)를 넘긴다.
+ * 스케치북 순서·배정·쓴 페이지·제출 기록의 uid를 모두 바꿔서, 하던 차례부터 이어서 할 수 있게 한다.
+ */
+export async function moveSeat(roomId, room, oldUid, newUid) {
+  const p = room.players[oldUid];
+  const u = {
+    [`players/${newUid}`]: { name: p.name, joinedAt: p.joinedAt, online: true },
+    [`players/${oldUid}`]: null,
+    [`rejoin/${newUid}`]: null,
+    [`warn/${oldUid}`]: null,
+  };
+  if (room.order) u.order = room.order.map((x) => (x === oldUid ? newUid : x));
+  if (room.assign && room.assign[oldUid] !== undefined) {
+    u[`assign/${newUid}`] = room.assign[oldUid];
+    u[`assign/${oldUid}`] = null;
+  }
+  for (const [b, book] of Object.entries(room.books || {})) {
+    if (book.owner === oldUid) u[`books/${b}/owner`] = newUid;
+    for (const [r, page] of Object.entries(book.pages || {})) {
+      if (page && page.by === oldUid) u[`books/${b}/pages/${r}/by`] = newUid;
+    }
+  }
+  for (const [r, done] of Object.entries(room.submitted || {})) {
+    if (done && done[oldUid]) { u[`submitted/${r}/${newUid}`] = true; u[`submitted/${r}/${oldUid}`] = null; }
+  }
+  if (room.ready && room.ready[oldUid]) { u[`ready/${newUid}`] = true; u[`ready/${oldUid}`] = null; }
+  await update(roomRef(roomId), u);
+  await remove(liveRef(roomId, oldUid)).catch(() => {});
+}
+
+export function rejectRejoin(roomId, uid) {
+  return remove(roomRef(roomId, `rejoin/${uid}`));
 }

@@ -179,6 +179,9 @@ console.log('results start with teacher words');
 await until(async () => (await teacher.page.locator('.t-room').first().locator('[data-act="present"]').isVisible()), 10000, 'present btn');
 await teacher.page.locator('.t-room').first().locator('[data-act="present"]').click();
 await teacher.page.locator('#t-present').waitFor({ state: 'visible' });
+// 학생 화면은 혼자 넘겨 보기로 시작한다 → '발표 따라가기'를 누르면 선생님 화면을 따라간다
+assert.equal(await kids[1].page.locator('#result-follow').textContent(), '📺 발표 따라가기');
+await kids[1].page.click('#result-follow');
 for (let s = 0; s < 3; s++) await teacher.page.click('#result-next');
 await until(async () => (await kids[1].page.locator('#result-pages .entry').count()) === 4, 10000, 'kids follow teacher');
 await teacher.page.screenshot({ path: `${SHOTS}/class-present.png` });

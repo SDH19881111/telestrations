@@ -8,9 +8,10 @@ import {
 import { getClass, groupInfo } from './classroom.js';
 import {
   pageType, bookFor, startGame, hostTick, submitPage, chooseWord, backToLobby, onlinePlayers,
+  readyState, setReady,
 } from './game.js';
 import { Sketch, COLORS, SIZES } from './canvas.js';
-import { renderResult, resetResult } from './result.js';
+import { renderResult, resetResult, startFreeView } from './result.js';
 import { keepScreenOn } from './wakelock.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -162,6 +163,7 @@ function exitRoom(message = '') {
   stopPresence();
   keepScreenOn(false);
   $('#stall').hidden = true;
+  $('#warn').hidden = true;
   Object.assign(state, { code: null, room: null, unsub: null, screenKey: '', sentRound: null });
   setUrlRoom(null);
   $('#hud').hidden = true;
@@ -173,8 +175,10 @@ function exitRoom(message = '') {
 
 function onRoom(room) {
   if (!room) return exitRoom(state.room && state.room.class ? '선생님이 모둠 방을 닫았어요.' : '방이 사라졌어요.');
+  if (room.banned && room.banned[state.uid]) return exitRoom('선생님이 모둠에서 내보냈어요.');
   if (!room.players || !room.players[state.uid]) return exitRoom(room.class ? '모둠에서 나왔어요. 다시 들어올 수 있어요.' : '방에서 나왔어요.');
   state.room = room;
+  showWarning(room);
   if (room.class) watchLeaderStart(room.class);
   if (room.phase !== 'playing') {
     state.sentRound = null;
@@ -202,9 +206,15 @@ function render() {
 
   if (key === 'lobby') { show('screen-lobby'); renderLobby(); return; }
   if (key === 'result') {
-    if (changed) resetResult();
+    if (changed) {
+      resetResult();
+      // 수업 방 학생은 각자 자기 스케치북부터 자유롭게 넘겨 본다 (선생님 발표를 따라가려면 '발표 따라가기').
+      // 일반 방은 전처럼 방장이 넘기는 대로 같이 본다.
+      if (room.class && !actsAsHost(room)) startFreeView({ book: Math.max(0, room.order.indexOf(state.uid)), step: 99 });
+    }
     show('screen-result');
     renderResult({ room, uid: actsAsHost(room) ? state.uid : null, code: state.code });
+    renderReady();
     return;
   }
   if (key.startsWith('wait')) { show('waiting'); updateHud(); return; }
@@ -219,7 +229,8 @@ function render() {
     if (changed) { startDrawing(m); $('#word-custom').value = ''; show('screen-draw'); }
     renderDraw(m);
   } else {
-    if (changed) { $('#guess-input').value = ''; show('screen-guess'); renderGuess(m); $('#guess-input').focus(); }
+    if (changed) { $('#guess-input').value = ''; show('screen-guess'); $('#guess-input').focus(); }
+    renderGuess(m); // 선생님이 앞 그림을 가리면 바로 반영
   }
   updateHud();
 }
@@ -348,7 +359,9 @@ function renderDraw(m) {
     }
   } else {
     const prev = prevPage(m);
-    prompt = prev && prev.content ? prev.content : '(앞사람이 비워 뒀어요. 자유롭게 그려 주세요!)';
+    prompt = prev && prev.content ? prev.content
+      : prev && prev.hidden ? '(선생님이 앞사람 답을 가렸어요. 자유롭게 그려 주세요!)'
+        : '(앞사람이 비워 뒀어요. 자유롭게 그려 주세요!)';
   }
   $('#word-custom-row').hidden = !!state.room.class && (book.choices || []).length > 0; // 수업 방은 목록에서만
   $('#word-pick').hidden = !picking;
@@ -361,7 +374,82 @@ function renderGuess(m) {
   const has = !!(prev && prev.content);
   $('#guess-img').hidden = !has;
   $('#guess-empty').hidden = has;
-  if (has) $('#guess-img').src = prev.content;
+  $('#guess-empty').textContent = prev && prev.hidden
+    ? '(선생님이 앞사람 그림을 가렸어요. 마음대로 적어 주세요!)'
+    : '(앞사람이 그림을 못 그렸어요. 마음대로 적어 주세요!)';
+  if (has && $('#guess-img').getAttribute('src') !== prev.content) $('#guess-img').src = prev.content;
+}
+
+// ---------- 결과 화면: 준비 완료 → 다음 판 ----------
+function renderReady() {
+  const { room, uid } = state;
+  const isClass = !!room.class;
+  const rs = readyState(room);
+  const min = isClass ? MIN_CLASS_PLAYERS : MIN_PLAYERS;
+  const iAmReady = !!(room.ready && room.ready[uid]);
+  // 다음 판을 시작하는 사람: 수업 방은 모둠장(선생님이 허용했을 때), 일반 방은 방장
+  const starter = isClass ? (state.leaderStart ? rs.ids[0] : null) : room.hostId;
+  const iStart = isClass ? starter === uid : actsAsHost(room);
+  const requested = isClass && !!room.startRequest;
+
+  $('#result-ready-info').textContent = `준비 ${rs.count}/${rs.ids.length}` +
+    (rs.waiting.length && rs.waiting.length <= 5 ? ` · 기다리는 중: ${rs.waiting.map((u) => room.players[u].name).join(', ')}` : '');
+  const btn = $('#result-ready');
+  btn.textContent = iAmReady ? '✅ 준비 완료 (누르면 취소)' : '✅ 다 봤어요! 준비 완료';
+  btn.classList.toggle('is-ready', iAmReady);
+  $('#result-start').hidden = !iStart;
+  $('#result-start').disabled = !rs.all || rs.ids.length < min || requested;
+  $('#result-start').textContent = requested ? '시작하는 중…' : '▶ 다음 판 시작';
+
+  const starterName = starter && room.players[starter] ? room.players[starter].name : '';
+  let hint;
+  if (rs.ids.length < min) hint = `다음 판은 ${min}명 이상이어야 시작할 수 있어요.`;
+  else if (!rs.all) hint = iStart ? '모두 준비되면 다음 판을 시작할 수 있어요.' : '모두 준비되면 다음 판이 시작돼요.';
+  else if (iStart) hint = '모두 준비됐어요! 다음 판을 시작하세요.';
+  else if (isClass && !state.leaderStart) hint = '모두 준비됐어요! 선생님이 다음 판을 시작해요.';
+  else hint = `모두 준비됐어요! ${isClass ? '모둠장' : '방장'} ${starterName}(이)가 시작하면 돼요.`;
+  if (requested && serverNow() - (room.startRequest.at || 0) > 6000) hint = '선생님 화면이 켜져 있어야 시작돼요. 선생님께 말씀드려 주세요.';
+  $('#result-ready-hint').textContent = hint;
+}
+
+// ---------- 선생님 경고 ----------
+function showWarning(room) {
+  const w = room.warn && room.warn[state.uid];
+  if (!w) return;
+  const key = `tele.warnSeen.${state.code}`;
+  let seen = 0;
+  try { seen = Number(localStorage.getItem(key)) || 0; } catch { /* 무시 */ }
+  if (w.at <= seen) return;
+  try { localStorage.setItem(key, String(w.at)); } catch { /* 무시 */ }
+  $('#warn-msg').textContent = w.msg;
+  $('#warn').hidden = false;
+  if (navigator.vibrate) navigator.vibrate(300);
+}
+
+// ---------- 선생님 관찰용 미리보기 ----------
+// 선생님이 이 모둠을 보고 있을 때(room.watch)만, 3초마다 바뀐 경우에만 작은 그림이나 쓰는 중인 답을 올린다.
+const LIVE_MS = 3000;
+let lastLive = '';
+function uploadLive() {
+  const { room, code, uid } = state;
+  if (!room || !room.class || !room.watch || room.phase !== 'playing' || hasSubmitted()) return;
+  const m = me();
+  if (!m) return;
+  let payload;
+  let sig;
+  if (m.type === 'draw') {
+    if ($('#draw-area').hidden) return; // 아직 제시어 고르는 중
+    sig = `${m.r}:d:${sketch.rev}`;
+    if (sig === lastLive) return;
+    payload = { img: sketch.preview() };
+  } else {
+    const text = (m.type === 'guess' ? $('#guess-input').value : $('#word-input').value).trim().slice(0, 30);
+    sig = `${m.r}:t:${text}`;
+    if (sig === lastLive) return;
+    payload = { text };
+  }
+  lastLive = sig;
+  set(ref(db, `live/${code}/${uid}`), { ...payload, r: m.r, at: serverTimestamp() }).catch(() => { lastLive = ''; });
 }
 
 function updateHud() {
@@ -435,6 +523,7 @@ function updateStall(room) {
 function tick() {
   const { room } = state;
   if (room && room.phase === 'lobby' && room.startRequest && state.screenKey === 'lobby') renderLobby(); // 시작 요청 대기 안내 갱신
+  if (room && room.phase === 'result' && room.startRequest && state.screenKey === 'result') renderReady();
   updateStall(room);
   if (!room || room.phase !== 'playing') return;
   updateHud();
@@ -535,14 +624,15 @@ function bindEvents() {
       btn.className = 'btn choice group';
       const full = g.count >= MAX_PLAYERS;
       const playing = g.phase && g.phase !== 'lobby';
-      // 게임 중이어도 내가 원래 있던 모둠이면 다시 들어갈 수 있다
-      btn.disabled = !g.exists || (!g.mine && (full || playing));
+      // 게임 중이어도 원래 있던 모둠이면 다시 들어갈 수 있다
+      // (기기·브라우저가 바뀌었으면 그때 쓴 이름으로 자리를 되찾는다)
+      btn.disabled = !g.exists || (!g.mine && full && !playing);
       if (g.mine) btn.classList.add('mine');
       btn.innerHTML = '';
       const b = document.createElement('strong');
       b.textContent = `${g.n}모둠`;
       const small = document.createElement('small');
-      small.textContent = !g.exists ? '닫힘' : g.mine ? (playing ? '게임 중 · 다시 들어가기' : '내 모둠') : playing ? '게임 중' : full ? '꽉 찼어요' : `${g.count}명`;
+      small.textContent = !g.exists ? '닫힘' : g.mine ? (playing ? '게임 중 · 다시 들어가기' : '내 모둠') : playing ? '게임 중 · 원래 모둠이면 이어하기' : full ? '꽉 찼어요' : `${g.count}명`;
       btn.append(b, small);
       btn.addEventListener('click', guard(async () => {
         const name = requireName();
@@ -610,6 +700,21 @@ function bindEvents() {
   onEnter($('#word-custom'), () => pickWord($('#word-custom').value));
 
   $('#result-lobby').addEventListener('click', () => { if (actsAsHost(state.room)) backToLobby(state.code); });
+
+  $('#result-ready').addEventListener('click', async () => {
+    const { room, uid, code } = state;
+    if (!room || room.phase !== 'result') return;
+    try { await setReady(code, uid, !(room.ready && room.ready[uid])); } catch (e) { console.error(e); toast('저장하지 못했어요. 다시 눌러 주세요.'); }
+  });
+  $('#result-start').addEventListener('click', async () => {
+    const room = state.room;
+    if (!room || room.phase !== 'result' || !readyState(room).all) return;
+    try {
+      if (room.class) await set(roomRef(state.code, 'startRequest'), { by: state.uid, at: serverTimestamp() });
+      else if (actsAsHost(room)) await startGame(state.code, room, state.words);
+    } catch (e) { console.error(e); toast(e.message && e.message.startsWith('최소') ? e.message : '시작하지 못했어요.'); }
+  });
+  $('#warn-ok').addEventListener('click', () => { $('#warn').hidden = true; });
 }
 
 // ---------- 시작 ----------
@@ -655,6 +760,7 @@ async function init() {
   // 선생님이 준 링크(?class=3반)로 들어왔고 이름을 기억하고 있으면 바로 모둠 고르기
   if (!state.code && urlClass && myName()) state.showGroups();
   setInterval(tick, 250);
+  setInterval(uploadLive, LIVE_MS);
 }
 
 init();

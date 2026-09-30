@@ -112,7 +112,7 @@ await dup.page.click('#btn-join');
 await dup.page.locator('#group-list button', { hasText: '1모둠' }).click();
 await until(async () => (await dup.page.locator('#home-error').textContent()).length > 0, 10000, 'dup name error');
 const dupMsg = await dup.page.locator('#home-error').textContent();
-assert.ok(dupMsg.includes('이미 있어요'), dupMsg);
+assert.ok(dupMsg.includes('접속 중인 학생이 있어요'), dupMsg);
 assert.equal(await screen(dup), 'screen-home');
 console.log('duplicate name blocked:', dupMsg);
 await dup.ctx.close();
@@ -149,15 +149,17 @@ assert.equal(await drafts(k0), 1, 'draft not saved');
 await draw(k1);
 await k0.page.close(); // 탭이 닫힘 (튕김)
 
-// 다른 학생(모둠에 없는 사람)에게는 '게임 중'으로 잠겨 있어야 한다
+// 다른 학생(모둠에 없는 사람)은 게임 중인 모둠에 새 이름으로 들어올 수 없다
 const late = await openPage(await newCtx('늦은학생'), `?emulator=1&class=${encodeURIComponent(CLASS)}`);
 await late.page.fill('#home-name', '늦은학생');
 await sleep(1500); // 로그인이 끝날 때 이름이 있으면 바로 모둠 고르기가 뜬다
 if (await late.page.locator('#home-main').isVisible()) await late.page.click('#btn-join');
 const lateBtn = late.page.locator('#group-list button', { hasText: '1모둠' });
 await lateBtn.waitFor({ state: 'visible' });
-assert.equal(await lateBtn.isDisabled(), true, 'non-member can join a playing group');
 console.log('non-member sees:', (await lateBtn.textContent()).trim());
+await lateBtn.click();
+await until(async () => (await late.page.locator('#home-error').textContent()).includes('게임이 진행 중인 모둠'), 10000, 'late kid blocked');
+assert.equal(await screen(late), 'screen-home');
 await late.ctx.close();
 
 // 학생0: 선생님이 준 수업 링크로 다시 들어온다 (이름은 기억됨 → 바로 모둠 고르기)

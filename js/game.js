@@ -1,5 +1,5 @@
 // 라운드 진행 규칙(pageType·로테이션)과 방장 전용 진행 로직
-import { update, serverNow, roomRef } from './firebase.js';
+import { update, set, remove, serverNow, roomRef } from './firebase.js';
 import { MIN_PLAYERS } from './room.js';
 
 const GRACE_MS = 2000;      // 마감 후 자동 제출을 기다리는 유예
@@ -55,9 +55,12 @@ function shuffle(arr) {
   return a;
 }
 
+const isBanned = (room, uid) => !!(room.banned && room.banned[uid]);
+
+/** 지금 접속 중인 참가자 (선생님이 강퇴한 학생 제외), 들어온 순서대로 */
 export function onlinePlayers(room) {
   return Object.entries(room.players || {})
-    .filter(([, p]) => p.online)
+    .filter(([uid, p]) => p.online && !isBanned(room, uid))
     .sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0))
     .map(([uid]) => uid);
 }
@@ -105,6 +108,7 @@ export async function startGame(code, room, words, opts = {}) {
     submitted: null,
     resultView: null,
     startRequest: null,
+    ready: null,
     ...roundFields(order, 0, settings),
   });
 }
@@ -161,7 +165,7 @@ export function hostTick(code, room) {
   // 방금 끊긴 사람(와이파이 순간 끊김 등)은 바로 건너뛰지 않고 잠깐 기다린다. 마감이 지나면 어차피 넘어간다.
   const waiting = room.order.filter((uid) => {
     const p = players[uid];
-    return p && !done[uid] && (p.online || (p.offAt && now - p.offAt < RECONNECT_WAIT_MS));
+    return p && !done[uid] && !isBanned(room, uid) && (p.online || (p.offAt && now - p.offAt < RECONNECT_WAIT_MS));
   });
   if (waiting.length === 0 || now > room.deadline + GRACE_MS) advance(code, room);
 }
@@ -191,6 +195,18 @@ export function backToLobby(code) {
   lastAdvanced.delete(code);
   return update(roomRef(code), {
     phase: 'lobby', order: null, books: null, submitted: null, round: null, roundKey: null,
-    assign: null, deadline: null, resultView: null, startRequest: null,
+    assign: null, deadline: null, resultView: null, startRequest: null, ready: null,
   });
+}
+
+/** 결과 화면의 준비 상태: 지금 접속 중인 참가자 전원이 '준비 완료'를 눌렀는지 */
+export function readyState(room) {
+  const ids = onlinePlayers(room);
+  const ready = room.ready || {};
+  const waiting = ids.filter((uid) => !ready[uid]);
+  return { ids, count: ids.length - waiting.length, waiting, all: ids.length > 0 && waiting.length === 0 };
+}
+
+export function setReady(code, uid, on) {
+  return on ? set(roomRef(code, `ready/${uid}`), true) : remove(roomRef(code, `ready/${uid}`));
 }

@@ -16,6 +16,7 @@ export class Sketch {
     this.actions = []; // {color, size, points:[[x,y]...]} 또는 {clear:true}
     this.current = null;
     this.enabled = true;
+    this.rev = 0; // 그림이 바뀔 때마다 증가 (선생님 미리보기를 바뀌었을 때만 올리려고)
     this.onChange = () => {};
     this.redraw();
 
@@ -60,6 +61,7 @@ export class Sketch {
     if (!this.current || e.pointerId !== this.pointerId) return;
     this.actions.push(this.current);
     this.current = null;
+    this.rev++;
     this.onChange();
   }
 
@@ -112,6 +114,7 @@ export class Sketch {
     if (!this.actions.length) return;
     this.actions.pop();
     this.redraw();
+    this.rev++;
     this.onChange();
   }
 
@@ -119,6 +122,7 @@ export class Sketch {
     if (this.isEmpty()) return;
     this.actions.push({ clear: true }); // 되돌리기로 복구할 수 있게 동작으로 기록
     this.redraw();
+    this.rev++;
     this.onChange();
   }
 
@@ -126,6 +130,7 @@ export class Sketch {
     this.actions = [];
     this.current = null;
     this.redraw();
+    this.rev++;
     this.onChange();
   }
 
@@ -133,12 +138,24 @@ export class Sketch {
   load(actions) {
     this.actions = Array.isArray(actions) ? actions : [];
     this.current = null;
+    this.rev++;
     this.redraw();
   }
 
   isEmpty() {
     const last = this.actions[this.actions.length - 1];
     return !last || !!last.clear;
+  }
+
+  /** 선생님 관찰 화면용 작은 미리보기 (약 5~10KB) */
+  preview(size = 200) {
+    if (!this.small) {
+      this.small = document.createElement('canvas');
+      this.small.width = this.small.height = size;
+    }
+    const c = this.small.getContext('2d');
+    c.drawImage(this.canvas, 0, 0, size, size);
+    return this.small.toDataURL('image/jpeg', 0.6);
   }
 
   /** 제출용 이미지. webp 인코딩을 못 하는 브라우저(구형 Safari)는 jpeg로 대체 */

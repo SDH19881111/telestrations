@@ -69,16 +69,55 @@ export async function joinRoom(code, uid, name) {
   const room = snap.val();
   if (!room) throw new RoomError('그런 방이 없어요. 코드를 확인해 주세요.');
   const players = room.players || {};
-  const taken = Object.entries(players).some(([id, p]) => id !== uid && p.name === name);
-  if (taken) throw new RoomError(`'${name}' 이름을 쓰는 사람이 이미 있어요. 성을 붙이거나 다른 이름으로 들어와 주세요.`);
+  const banned = room.banned || {};
+  if (banned[uid] || (room.class && Object.values(banned).includes(name))) throw new RoomError('선생님이 이 모둠에서 내보냈어요. 선생님께 말씀드려 주세요.');
   if (players[uid]) {
     // 재접속: 같은 사람으로 복귀
     await update(roomRef(code, `players/${uid}`), { name, online: true });
     return;
   }
-  if (room.phase !== 'lobby') throw new RoomError('이미 게임이 진행 중인 방이에요.');
+  const same = Object.values(players).find((p) => p.name === name);
+  if (same) {
+    // 수업 방: 기기나 브라우저가 바뀌어 다른 사람으로 인식된 학생이 원래 이름으로 자리를 되찾는다
+    if (room.class && !same.online) return reclaimSeat(code, uid, name);
+    throw new RoomError(room.class
+      ? `'${name}' 이름으로 지금 접속 중인 학생이 있어요. 원래 쓰던 기기를 닫았다면 30초쯤 뒤에 다시 눌러 주세요.`
+      : `'${name}' 이름을 쓰는 사람이 이미 있어요. 성을 붙이거나 다른 이름으로 들어와 주세요.`);
+  }
+  if (room.phase !== 'lobby') {
+    throw new RoomError(room.class
+      ? '게임이 진행 중인 모둠이에요. 원래 이 모둠에서 하던 학생이라면 그때 쓴 이름을 그대로 적어 주세요.'
+      : '이미 게임이 진행 중인 방이에요.');
+  }
   if (Object.keys(players).length >= MAX_PLAYERS) throw new RoomError(`방이 꽉 찼어요 (최대 ${MAX_PLAYERS}명).`);
   await set(roomRef(code, `players/${uid}`), { name, online: true, joinedAt: serverTimestamp() });
+}
+
+const RECLAIM_WAIT_MS = 10000;
+
+/**
+ * 자리 되찾기 요청: 선생님 화면이 이름이 같은 (연결 끊긴) 자리를 새 기기(uid)로 옮겨 준다.
+ * 그린 페이지·스케치북 순서도 함께 옮겨지므로 하던 차례부터 이어서 한다.
+ */
+async function reclaimSeat(code, uid, name) {
+  await set(roomRef(code, `rejoin/${uid}`), { name, at: serverTimestamp() });
+  const moved = await new Promise((resolve) => {
+    let done = false;
+    let off = null;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (off) off();
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), RECLAIM_WAIT_MS);
+    off = onValue(roomRef(code, `players/${uid}`), (snap) => { if (snap.exists()) finish(true); }, () => finish(false));
+    if (done) off();
+  });
+  if (moved) return;
+  await remove(roomRef(code, `rejoin/${uid}`)).catch(() => {});
+  throw new RoomError('자리를 되찾지 못했어요. 선생님 화면이 켜져 있는지 확인하고 다시 눌러 주세요.');
 }
 
 export async function leaveRoom(code, uid) {

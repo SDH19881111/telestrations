@@ -240,3 +240,44 @@ body.teacher main { max-width: 1100px; }
   background: var(--danger); color: #fff; font-weight: 800; text-align: center;
   animation: pulse 1.6s infinite;
 }
+
+/* 결과 화면: 준비 완료 → 다음 판 */
+.ready-box { display: flex; flex-direction: column; gap: 10px; }
+.ready-info { font-weight: 800; text-align: center; }
+.btn.is-ready { background: #e8f5e9; border-color: #43a047; color: #2e7d32; }
+
+/* 선생님 경고 */
+.warn-overlay {
+  position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(43, 42, 51, 0.6);
+}
+.warn-overlay .card { max-width: 420px; width: 100%; border: 4px solid var(--danger); }
+.warn-msg { font-size: 20px; font-weight: 800; overflow-wrap: anywhere; }
+.big-emoji.still { animation: none; }
+
+/* ---------- 선생님: 모둠 들여다보기 ---------- */
+.w-players { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.w-player { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
+.w-player.offline { opacity: 0.6; }
+.w-player.banned { opacity: 0.45; background: #f5f5f5; }
+.w-name { font-weight: 800; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.w-task { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.w-live {
+  aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; background: #fafafa;
+  display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 13px; color: var(--muted); text-align: center;
+}
+.w-live img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.w-live.text { aspect-ratio: auto; min-height: 56px; padding: 8px; font-size: 18px; font-weight: 800; color: var(--ink); }
+.w-actions { display: flex; gap: 6px; }
+.w-actions .btn { flex: 1; padding: 6px 8px; }
+.btn.danger { color: var(--danger); border-color: #f3c1c0; }
+.w-books { display: flex; flex-direction: column; gap: 12px; }
+.w-book { padding: 12px; }
+.w-pages { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.w-page { flex: none; width: 130px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.w-page img, .w-page .w-text {
+  width: 130px; height: 130px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+}
+.w-page .w-text { display: flex; align-items: center; justify-content: center; padding: 6px; text-align: center; font-size: 16px; font-weight: 800; overflow-wrap: anywhere; }
+.w-page .w-text.muted { font-weight: 600; font-size: 13px; }
+.w-page .btn { padding: 3px 6px; font-size: 12px; }

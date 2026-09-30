@@ -160,6 +160,20 @@ await players[2].page.click('#result-follow');
 await players[2].page.click('#result-next');
 await host.page.click('#result-next');
 
+// ---------- 준비 완료 → 방장에게 '다음 판 시작' ----------
+{
+  const active = [];
+  for (const p of players) if (!p.page.isClosed() && (await p.page.locator('#result-ready').isVisible())) active.push(p);
+  assert.equal(await host.page.locator('#result-start').isVisible(), true, 'host has no start button');
+  assert.equal(await active.find((p) => p !== host).page.locator('#result-start').isVisible(), false, 'guest has start button');
+  for (const p of active) await p.page.click('#result-ready');
+  await waitAll([host], async (p) => (await p.page.locator('#result-ready-info').textContent()).startsWith(`준비 ${active.length}/${active.length}`));
+  if (active.length >= 4) await waitAll([host], (p) => p.page.locator('#result-start').isEnabled());
+  await active.find((p) => p !== host).page.click('#result-ready'); // 취소하면 다시 막힘
+  await waitAll([host], (p) => p.page.locator('#result-start').isDisabled());
+  console.log('ready → host start button ok:', await host.page.locator('#result-ready-info').textContent());
+}
+
 // ---------- 방장 이탈 → 위임 ----------
 await host.ctx.close();
 const t0 = Date.now();
