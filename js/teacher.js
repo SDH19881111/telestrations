@@ -202,6 +202,12 @@ async function aiFill() {
   let added = 0;
   let dropped = 0;
   let used = model;
+  // 묶음마다 바로 저장한다 — 중간에 서버가 붐벼 멈춰도 그때까지 받은 설명은 남도록
+  const saveSoFar = async () => {
+    $('#t-words').value = formatWordList(words, desc);
+    updateWordCount();
+    await saveForm();
+  };
   try {
     for (let i = 0; i < need.length; i += AI_BATCH) {
       status.textContent = `AI가 설명을 만드는 중… (${Math.min(i + AI_BATCH, need.length)}/${need.length})`;
@@ -215,14 +221,13 @@ async function aiFill() {
         desc[descKey(w)] = d;
         added++;
       }
+      await saveSoFar();
     }
-    $('#t-words').value = formatWordList(words, desc);
-    updateWordCount();
-    await saveForm();
     status.textContent = `${added}개 채웠어요${dropped ? ` (정답이 드러난 ${dropped}개는 뺐어요)` : ''}. 읽어 보고 고쳐 주세요. (모델: ${used})`;
   } catch (e) {
     console.warn('ai', e);
-    status.textContent = `⚠ ${e instanceof SyntaxError ? 'AI 답을 읽지 못했어요. 다시 눌러 주세요.' : e.message}`;
+    const kept = added ? ` 그 전까지 받은 ${added}개는 저장했어요. 다시 누르면 나머지만 채워요.` : '';
+    status.textContent = `⚠ ${e instanceof SyntaxError ? 'AI 답을 읽지 못했어요. 다시 눌러 주세요.' : e.message}${kept}`;
   } finally {
     btn.disabled = false;
   }

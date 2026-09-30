@@ -13,14 +13,25 @@ export function pageType(r, N) {
   return r % 2 === 1 ? 'draw' : 'guess';
 }
 
+/**
+ * r라운드에 스케치북이 주인에게서 몇 칸 옆 사람에게 가 있는지: 0, 1, N-1, 2, N-2, 3, …
+ * - N라운드 동안 모든 스케치북이 모든 사람을 정확히 한 번씩 거친다 (자기 스케치북은 0라운드뿐)
+ * - 매번 넘어가는 칸 수가 달라서, 맞힐 때마다 다른 친구가 그린 그림을 받는다
+ *   (한 칸씩만 넘기면 늘 바로 앞 친구의 그림만 맞히게 된다)
+ */
+export function passOffset(r, N) {
+  if (r === 0) return 0;
+  return r % 2 === 1 ? (r + 1) / 2 : N - r / 2;
+}
+
 /** r라운드에 i번째 플레이어가 작성하는 스케치북 번호 */
 export function bookFor(i, r, N) {
-  return (((i - r) % N) + N) % N;
+  return (((i - passOffset(r, N)) % N) + N) % N;
 }
 
 /** r라운드에 b번 스케치북을 작성하는 플레이어의 순번 */
 export function writerIndex(b, r, N) {
-  return (b + r) % N;
+  return (b + passOffset(r, N)) % N;
 }
 
 export function roundSeconds(r, N, settings) {

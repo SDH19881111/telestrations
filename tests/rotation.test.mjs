@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 const src = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
 const pick = (name) => src.match(new RegExp(`export function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`))[0].replace('export ', '');
 const { pageType, bookFor, writerIndex } = new Function(
-  `${pick('pageType')}\n${pick('bookFor')}\n${pick('writerIndex')}\nreturn { pageType, bookFor, writerIndex };`,
+  `${pick('passOffset')}\n${pick('pageType')}\n${pick('bookFor')}\n${pick('writerIndex')}\nreturn { pageType, bookFor, writerIndex };`,
 )();
 
 for (let N = 3; N <= 12; N++) {
@@ -24,13 +24,23 @@ for (let N = 3; N <= 12; N++) {
     for (let b = 0; b < N; b++) assert.equal(bookFor(writerIndex(b, r, N), r, N), b);
   }
   for (let b = 0; b < N; b++) {
-    // 0라운드는 주인이, 마지막은 주인 바로 앞 순번이 작성
+    // 0라운드는 주인이 작성
     assert.equal(writerIndex(b, 0, N), b);
-    assert.equal(writerIndex(b, N - 1, N), (b - 1 + N) % N);
-    // 한 스케치북에 같은 사람이 두 번 쓰지 않는다
+    // 모든 스케치북이 모든 사람을 정확히 한 번씩 거친다 (한 스케치북에 같은 사람이 두 번 쓰지 않는다)
     const writers = new Set();
     for (let r = 0; r < N; r++) writers.add(writerIndex(b, r, N));
     assert.equal(writers.size, N);
+  }
+  for (let i = 0; i < N; i++) {
+    // 맞힐 때마다 다른 친구가 그린 그림을 받는다 (앞 페이지를 쓴 사람이 매번 다르고, 내가 아니다)
+    const drawers = [];
+    for (let r = 1; r < N; r++) {
+      if (pageType(r, N) !== 'guess') continue;
+      const drawer = writerIndex(bookFor(i, r, N), r - 1, N);
+      assert.notEqual(drawer, i, `N=${N} i=${i} r=${r} 내 그림을 맞힘`);
+      drawers.push(drawer);
+    }
+    assert.equal(new Set(drawers).size, drawers.length, `N=${N} i=${i} 같은 친구 그림을 두 번 맞힘: ${drawers}`);
   }
 }
 console.log('rotation tests passed (N=3..12)');
