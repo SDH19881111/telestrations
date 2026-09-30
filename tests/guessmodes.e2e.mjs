@@ -17,18 +17,26 @@ const WORDS = ['사과', '기차', '달팽이', '연필', '우산', '로봇', '�
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ['--no-proxy-server'] });
 const errors = [];
-let aiCalls = 0;
+const aiCalls = [];
 
 async function newCtx(name, mobile = false) {
   const ctx = await browser.newContext(mobile ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1200, height: 900 } });
   await ctx.route(/https:\/\/www\.gstatic\.com\/firebasejs\/10\.12\.2\/(.*)$/, (route) => {
     route.fulfill({ contentType: 'application/javascript', body: readFileSync(new URL(route.request().url().split('/').pop(), FB)) });
   });
-  // 가짜 Gemini: 받은 단어마다 설명 (기차는 정답이 드러나는 설명)
+  // 가짜 Gemini: 모델 목록, 예전 모델(2.5)은 404, 받은 단어마다 설명 (기차는 정답이 드러나는 설명)
   await ctx.route(/generativelanguage\.googleapis\.com/, (route) => {
-    aiCalls++;
+    aiCalls.push(route.request().url().replace(/^.*\/v1beta\//, ''));
     const req = route.request();
-    assert.equal(req.headers()['x-goog-api-key'], 'test-key');
+    assert.equal(req.headers()['x-goog-api-key'], 'AQ.test-key');
+    if (req.method() === 'GET') {
+      const models = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-3.9-flash-preview', 'gemini-3.8-flash-image']
+        .map((n) => ({ name: `models/${n}`, supportedGenerationMethods: ['generateContent'] }));
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ models }) });
+    }
+    if (req.url().includes('gemini-2.5-flash')) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 404, message: 'This model is no longer available to new users.' } }) });
+    }
     const words = JSON.parse(req.postDataJSON().contents[0].parts[0].text.split('단어: ')[1]);
     const out = {};
     for (const w of words) out[w] = w === '기차' ? '기차는 길어요' : `${w.length}글자짜리 물건이에요`;
@@ -113,18 +121,24 @@ await teacher.page.fill('#t-words', ['달팽이 : 등에 집을 지고 느리게
 
 // 1) AI 설명
 await teacher.page.locator('.ai-box summary').click();
-assert.equal(await teacher.page.inputValue('#t-ai-model'), 'gemini-2.5-flash');
-await teacher.page.fill('#t-ai-key', 'test-key');
+assert.equal(await teacher.page.inputValue('#t-ai-model'), '', 'model should default to auto');
+await teacher.page.fill('#t-ai-key', 'AQ.test-key');
+// 예전 기본 모델을 적어 두었어도(404) 자동으로 쓸 수 있는 모델로 바꿔 다시 시도한다
+await teacher.page.fill('#t-ai-model', 'gemini-2.5-flash');
 await teacher.page.click('#t-ai-fill');
 await until(async () => (await teacher.page.locator('#t-ai-status').textContent()).includes('채웠어요'), 10000, 'ai fill');
 const aiStatus = await teacher.page.locator('#t-ai-status').textContent();
-assert.ok(aiStatus.includes('6개 채웠어요') && aiStatus.includes('1개는 뺐어요'), aiStatus);
+assert.ok(aiStatus.includes('6개 채웠어요') && aiStatus.includes('1개는 뺐어요') && aiStatus.includes('모델: gemini-3.8-flash'), aiStatus);
 const wordsText = await teacher.page.inputValue('#t-words');
 assert.ok(wordsText.includes('달팽이 : 등에 집을 지고 느리게 다녀요'), 'manual desc overwritten');
 assert.ok(wordsText.includes('사과 : 2글자짜리 물건이에요'), wordsText);
 assert.ok(/^기차$/m.test(wordsText), 'leaking desc kept');
-assert.equal(aiCalls, 1);
-assert.equal(await teacher.page.evaluate(() => localStorage.getItem('tele.teacher.aiKey')), 'test-key');
+assert.deepEqual(aiCalls, ['models/gemini-2.5-flash:generateContent', 'models?pageSize=1000', 'models/gemini-3.8-flash:generateContent']);
+assert.equal(await teacher.page.evaluate(() => localStorage.getItem('tele.teacher.aiKey')), 'AQ.test-key');
+// 새로고침하면 저장된 예전 기본값은 '자동'으로 바뀐다
+await teacher.page.reload();
+await teacher.page.locator('#t-dash').waitFor({ state: 'visible' });
+assert.equal(await teacher.page.inputValue('#t-ai-model'), '', 'old default model not migrated to auto');
 console.log('AI fill:', aiStatus);
 // 빠진 설명은 선생님이 직접 채운다
 await teacher.page.fill('#t-words', wordsText.replace(/^기차$/m, '기차 : 칙칙폭폭 선로 위를 달려요'));
@@ -246,7 +260,8 @@ console.log('free mode + hint limit ok');
 await teacher.page.click('#t-close');
 await until(async () => (await screen(k1)) === 'screen-home', 10000, 'class closed');
 
-const unexpected = errors.filter((e) => !/permission_denied|ERR_|WebSocket/.test(e));
+// 가짜 Gemini가 예전 모델에 일부러 준 404는 브라우저가 콘솔에 남긴다
+const unexpected = errors.filter((e) => !/permission_denied|ERR_|WebSocket|status of 404/.test(e));
 console.log('console errors:', unexpected.length, unexpected.slice(0, 5));
 assert.equal(unexpected.length, 0);
 await browser.close();

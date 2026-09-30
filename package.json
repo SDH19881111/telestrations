@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "emulators": "firebase emulators:start --project demo-telestrations",
-    "test": "node tests/rotation.test.mjs && node tests/hints.test.mjs",
+    "test": "node tests/rotation.test.mjs && node tests/hints.test.mjs && node tests/ai.test.mjs",
     "test:e2e": "node tests/e2e.mjs && N=4 node tests/e2e.mjs && DROP=1 node tests/e2e.mjs && node tests/classroom.e2e.mjs && node tests/reconnect.e2e.mjs && node tests/moderation.e2e.mjs && node tests/guessmodes.e2e.mjs",
     "classes": "node scripts/classes.mjs list"
   },

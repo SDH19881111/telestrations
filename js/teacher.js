@@ -8,8 +8,9 @@ import {
 } from './classroom.js';
 import { startGame, hostTick, backToLobby, onlinePlayers, pageType, bookFor, readyState } from './game.js';
 import { bookEntries } from './result.js';
+import { describeWords, leaksAnswer, OLD_DEFAULT_MODELS } from './ai.js';
 import {
-  parseWordList, formatWordList, descKey, letters, DEFAULT_HINTS, DEFAULT_TILES, DESC_MAX, survived,
+  parseWordList, formatWordList, descKey, DEFAULT_HINTS, DEFAULT_TILES, DESC_MAX, survived,
 } from './hints.js';
 import { renderResult, resetResult } from './result.js';
 import { keepScreenOn } from './wakelock.js';
@@ -182,56 +183,14 @@ function updateWordCount() {
   $('#t-words-count').textContent = words.length ? `(${words.length}개${d ? `, 설명 ${d}개` : ''})` : '(비어 있음 → 기본 제시어 사용)';
 }
 
-// ---------- AI 설명 힌트 (Google AI Studio · Gemini API) ----------
-// 선생님 브라우저에서 바로 부른다. 키는 localStorage에만 두고, 보내는 것은 제시어 목록뿐이다.
+// ---------- AI 설명 힌트 (Google AI Studio · Gemini API, js/ai.js) ----------
 const AI_KEY = 'tele.teacher.aiKey';
 const AI_MODEL = 'tele.teacher.aiModel';
-const DEFAULT_AI_MODEL = 'gemini-2.5-flash';
 const AI_BATCH = 60;
-
-function aiPrompt(words) {
-  return [
-    '초등학생이 하는 그림 맞히기 게임의 힌트를 만들어 주세요.',
-    `각 단어를 초등학생이 알아듣는 쉬운 말로 ${DESC_MAX - 15}자 이내 한 문장으로 설명하세요.`,
-    '설명에 그 단어 자체나 단어의 글자를 쓰지 마세요. 정답을 바로 알려 주지 말고 떠올릴 수 있게만 도와주세요.',
-    '다른 말 없이 JSON 객체 하나로만 답하세요. 형식: {"단어": "설명"}',
-    `단어: ${JSON.stringify(words)}`,
-  ].join('\n');
-}
-
-async function aiDescribe(words, key, model) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: aiPrompt(words) }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.4 },
-    }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = data.error && data.error.message ? data.error.message : `HTTP ${res.status}`;
-    throw new Error(res.status === 404 ? `모델 '${model}'을 찾을 수 없어요. AI Studio에서 모델 이름을 확인해 주세요.`
-      : res.status === 400 || res.status === 403 ? `API 키를 확인해 주세요. (${msg})`
-        : res.status === 429 ? '무료 사용량을 다 썼어요. 잠시 뒤에 다시 해 주세요.' : msg);
-  }
-  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
-  const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
-  return json && typeof json === 'object' ? json : {};
-}
-
-/** 정답이 드러나는 설명은 버린다 (단어 전체나 두 글자 이상 이어진 부분이 들어 있으면) */
-function leaksAnswer(word, d) {
-  const w = letters(word).join('');
-  const t = letters(d).join('');
-  if (t.includes(w)) return true;
-  for (let i = 0; i + 2 <= w.length; i++) if (t.includes(w.slice(i, i + 2))) return true;
-  return false;
-}
 
 async function aiFill() {
   const key = $('#t-ai-key').value.trim();
-  const model = $('#t-ai-model').value.trim() || DEFAULT_AI_MODEL;
+  const model = $('#t-ai-model').value.trim(); // 비우면 자동 선택
   const status = $('#t-ai-status');
   if (!key) { status.textContent = 'API 키를 먼저 넣어 주세요.'; return; }
   try { localStorage.setItem(AI_KEY, key); localStorage.setItem(AI_MODEL, model); } catch { /* 무시 */ }
@@ -242,10 +201,13 @@ async function aiFill() {
   btn.disabled = true;
   let added = 0;
   let dropped = 0;
+  let used = model;
   try {
     for (let i = 0; i < need.length; i += AI_BATCH) {
       status.textContent = `AI가 설명을 만드는 중… (${Math.min(i + AI_BATCH, need.length)}/${need.length})`;
-      const got = await aiDescribe(need.slice(i, i + AI_BATCH), key, model);
+      const res = await describeWords(need.slice(i, i + AI_BATCH), key, used, DESC_MAX - 15);
+      const { got } = res;
+      used = res.model;
       for (const w of need.slice(i, i + AI_BATCH)) {
         const d = typeof got[w] === 'string' ? got[w].replace(/\s+/g, ' ').replace(/[:：]/g, ',').trim().slice(0, DESC_MAX) : '';
         if (!d) continue;
@@ -257,7 +219,7 @@ async function aiFill() {
     $('#t-words').value = formatWordList(words, desc);
     updateWordCount();
     await saveForm();
-    status.textContent = `${added}개 채웠어요${dropped ? ` (정답이 드러난 ${dropped}개는 뺐어요)` : ''}. 읽어 보고 고쳐 주세요.`;
+    status.textContent = `${added}개 채웠어요${dropped ? ` (정답이 드러난 ${dropped}개는 뺐어요)` : ''}. 읽어 보고 고쳐 주세요. (모델: ${used})`;
   } catch (e) {
     console.warn('ai', e);
     status.textContent = `⚠ ${e instanceof SyntaxError ? 'AI 답을 읽지 못했어요. 다시 눌러 주세요.' : e.message}`;
@@ -783,8 +745,9 @@ function bind() {
   for (const sel of ['#t-groups', '#t-draw', '#t-guess', '#t-leader', '#t-mode', '#t-hints', '#t-tiles']) $(sel).addEventListener('change', () => saveForm().catch(() => {}));
   try {
     $('#t-ai-key').value = localStorage.getItem(AI_KEY) || '';
-    $('#t-ai-model').value = localStorage.getItem(AI_MODEL) || DEFAULT_AI_MODEL;
-  } catch { $('#t-ai-model').value = DEFAULT_AI_MODEL; }
+    const saved = localStorage.getItem(AI_MODEL) || '';
+    $('#t-ai-model').value = OLD_DEFAULT_MODELS.includes(saved) ? '' : saved; // 예전 기본값은 자동 선택으로
+  } catch { /* 무시 */ }
   $('#t-ai-fill').addEventListener('click', aiFill);
 
   $('#t-save').addEventListener('click', async () => {
