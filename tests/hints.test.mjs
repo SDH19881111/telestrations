@@ -1,7 +1,7 @@
 // 맞히기 도우미(글자 카드·객관식·힌트) 규칙 테스트
 import assert from 'node:assert/strict';
 import {
-  chosung, lengthMask, letters, tileSet, choiceSet, fiftyFifty, hintLadder, hintText,
+  chosung, lengthMask, letters, tileSet, choiceSet, fiftyFifty, trimTiles, hintLadder, hintText,
   answerFor, parseWordList, formatWordList, descKey, survived,
 } from '../js/hints.js';
 
@@ -41,9 +41,23 @@ assert.equal(gone.length, 2);
 assert.ok(!gone.includes('달팽이'));
 assert.ok(choiceSet('없는말', ['없는말'], [], 's').length === 1, 'no decoys when pool is only the answer');
 
-assert.deepEqual(hintLadder('free', true), ['len', 'cho', 'desc']);
-assert.deepEqual(hintLadder('tiles', false), ['first', 'cho']);
-assert.deepEqual(hintLadder('choice', true), ['fifty', 'desc']);
+// 설명이 없어도 힌트는 3단계, 설명이 있으면 4단계
+assert.deepEqual(hintLadder('free', false), ['len', 'cho', 'first']);
+assert.deepEqual(hintLadder('free', true), ['len', 'cho', 'desc', 'first']);
+assert.deepEqual(hintLadder('tiles', false), ['first', 'cho', 'trim']);
+assert.deepEqual(hintLadder('tiles', true), ['first', 'cho', 'desc', 'trim']);
+assert.deepEqual(hintLadder('choice', false), ['len', 'fifty', 'cho']);
+assert.deepEqual(hintLadder('choice', true), ['len', 'fifty', 'desc', 'cho']);
+for (const mode of ['free', 'tiles', 'choice']) for (const d of [false, true]) assert.ok(hintLadder(mode, d).length >= 3);
+{
+  // 틀린 카드 절반 지우기: 정답 글자 카드는 (같은 글자 여럿이어도) 남는다
+  const tiles = tileSet('기러기', pool, [], 12, 'z');
+  const gone = trimTiles(tiles, '기러기', 'z');
+  const left = tiles.filter((_, i) => !gone.includes(i));
+  assert.equal(gone.length, Math.ceil((tiles.length - 3) / 2));
+  assert.equal(left.filter((c) => c === '기').length >= 2 && left.includes('러'), true, `answer tiles removed: ${left}`);
+  assert.deepEqual(trimTiles(tiles, '기러기', 'z'), gone);
+}
 assert.equal(hintText('first', '달팽이'), '첫 글자: 달');
 assert.equal(hintText('desc', '달팽이', '집을 지고 다녀요'), '설명: 집을 지고 다녀요');
 

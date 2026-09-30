@@ -2,7 +2,7 @@
 // 1) 선생님: AI 설명 채우기 (Gemini 응답은 가짜로 대신함) — 정답이 드러나는 설명은 빠짐
 // 2) 글자 카드: 카드 수·칸 수, 힌트 3단계(첫 글자→초성→설명), 카드로 완성해 제출, 선생님 화면 💡
 // 3) 모두 정답 → 결과에 🏆 끝까지 살아남은 단어
-// 4) 객관식: 보기 4개, '보기 두 개 지우기' 힌트, 고르면 제출
+// 4) 객관식: 보기 4개, 글자수 → '보기 두 개 지우기' 힌트, 골랐다 바꾼 뒤 완료로 제출
 // 5) 자유 입력: 글자수·초성 힌트, 힌트 개수 한도
 import { chromium } from 'playwright-core';
 import { readFileSync } from 'node:fs';
@@ -206,6 +206,8 @@ await playToGuess();
   assert.ok(hints[1].startsWith('초성: '));
   assert.ok(hints[2].startsWith('설명: '), hints[2]);
   assert.equal(await k0.page.locator('#hint-btn').isDisabled(), true);
+  // 설명이 있는 단어는 4단계인데 한 게임 힌트 3개를 다 써서 막힘
+  assert.ok((await k0.page.locator('#hint-btn').textContent()).includes('남은 힌트 0개'), await k0.page.locator('#hint-btn').textContent());
   await k0.page.screenshot({ path: `${SHOTS}/guess-tiles.png`, fullPage: true });
   console.log('tiles:', ans, '| hints:', hints.join(' / '));
 }
@@ -247,12 +249,29 @@ await playToGuess();
   assert.equal(await k1.page.locator('#guess-choice').isVisible(), true);
   assert.equal(await opts.count(), 4);
   assert.ok((await opts.allTextContents()).includes(ans));
-  assert.ok((await k1.page.locator('#hint-btn').textContent()).includes('보기 두 개 지우기'), 'hints not reset for new game');
+  assert.ok((await k1.page.locator('#hint-btn').textContent()).includes('글자수 힌트 보기 (남은 힌트 3개)'), 'hints not reset for new game');
+  await k1.page.click('#hint-btn');
+  await until(async () => (await k1.page.locator('#hint-list li').count()) === 1, 5000, 'len hint');
+  assert.ok((await k1.page.locator('#hint-btn').textContent()).includes('보기 두 개 지우기'));
   await k1.page.click('#hint-btn');
   await until(async () => (await k1.page.locator('#guess-choice button:disabled').count()) === 2, 5000, 'fifty');
   assert.equal(await k1.page.locator('#guess-choice button:disabled', { hasText: ans }).count(), 0, 'answer removed');
+
+  // 고르기만 해서는 안 내지고, 다른 보기로 바꿀 수 있다
+  assert.equal(await k1.page.locator('#choice-submit').isDisabled(), true);
+  const wrongOpt = k1.page.locator('#guess-choice button:not(:disabled)').filter({ hasNotText: ans }).first();
+  await wrongOpt.click();
+  await sleep(300);
+  assert.equal(await screen(k1), 'screen-guess', 'choice submitted on tap');
+  assert.equal(await k1.page.locator('#guess-choice button.selected').count(), 1);
+  assert.equal(await k1.page.locator('#choice-submit').isEnabled(), true);
+  await k1.page.locator('#guess-choice button', { hasText: ans }).first().click();
+  assert.ok((await k1.page.locator('#guess-choice button.selected').textContent()).includes(ans), 'selection not changed');
   await k1.page.screenshot({ path: `${SHOTS}/guess-choice.png`, fullPage: true });
-  for (const k of kids) await k.page.locator('#guess-choice button', { hasText: await answerOf(k) }).first().click();
+  for (const k of kids) {
+    await k.page.locator('#guess-choice button', { hasText: await answerOf(k) }).first().click();
+    await k.page.click('#choice-submit');
+  }
 }
 await all(async (k) => (await screen(k)) === 'screen-result', 'results (choice)');
 console.log('choice mode ok');

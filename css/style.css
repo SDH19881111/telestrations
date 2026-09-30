@@ -306,3 +306,5 @@ body.teacher main { max-width: 1100px; }
 .ai-box summary { cursor: pointer; font-weight: 700; }
 .ai-box[open] { display: flex; flex-direction: column; gap: 10px; }
 .ai-box input { font-size: 15px; padding: 8px 10px; }
+.choice.selected { border-color: var(--primary); background: #fff1ea; color: var(--primary); }
+.tile.removed { visibility: hidden; }

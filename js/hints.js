@@ -107,13 +107,33 @@ export function fiftyFifty(choices, answer, seedText) {
   return shuffle(choices.filter((c) => c !== answer.trim()), rand).slice(0, 2);
 }
 
-/** 방식별 힌트 순서. 설명이 없으면 설명 단계는 뺀다. */
+/**
+ * 방식별 힌트 순서 (쉬운 것부터). 설명이 없는 단어도 3단계는 되게 하고, 설명이 있으면 한 단계 더.
+ *   자유 입력: 글자수 → 초성 → (설명) → 첫 글자
+ *   글자 카드: 첫 글자 → 초성 → (설명) → 틀린 카드 절반 지우기
+ *   객관식:    글자수 → 보기 두 개 지우기 → (설명) → 초성
+ */
 export function hintLadder(mode, hasDesc) {
-  const base = mode === 'tiles' ? ['first', 'cho'] : mode === 'choice' ? ['fifty'] : ['len', 'cho'];
-  return hasDesc ? [...base, 'desc'] : base;
+  const [a, b, last] = mode === 'tiles' ? ['first', 'cho', 'trim'] : mode === 'choice' ? ['len', 'fifty', 'cho'] : ['len', 'cho', 'first'];
+  return hasDesc ? [a, b, 'desc', last] : [a, b, last];
 }
 
-export const HINT_LABEL = { len: '글자수', cho: '초성', first: '첫 글자', desc: '설명', fifty: '보기 두 개 지우기' };
+export const HINT_LABEL = {
+  len: '글자수', cho: '초성', first: '첫 글자', desc: '설명', fifty: '보기 두 개 지우기', trim: '틀린 카드 지우기',
+};
+
+/** 글자 카드 '틀린 카드 지우기' 힌트로 지울 카드 번호: 정답에 안 쓰이는 카드의 절반 */
+export function trimTiles(tiles, answer, seedText) {
+  const need = letters(answer);
+  const decoys = [];
+  tiles.forEach((ch, i) => {
+    const k = need.indexOf(ch);
+    if (k >= 0) need.splice(k, 1); // 정답 글자 카드는 (같은 글자가 여럿이면 필요한 만큼) 남긴다
+    else decoys.push(i);
+  });
+  const rand = seeded(`trim:${seedText}`);
+  return shuffle(decoys, rand).slice(0, Math.ceil(decoys.length / 2));
+}
 
 export function hintText(kind, answer, desc) {
   if (kind === 'len') return `글자수: ${lengthMask(answer)}`;
@@ -121,6 +141,7 @@ export function hintText(kind, answer, desc) {
   if (kind === 'first') return `첫 글자: ${letters(answer)[0] || ''}`;
   if (kind === 'desc') return `설명: ${desc}`;
   if (kind === 'fifty') return '틀린 보기 두 개를 지웠어요.';
+  if (kind === 'trim') return '틀린 카드 절반을 지웠어요.';
   return '';
 }
 

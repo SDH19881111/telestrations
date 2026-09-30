@@ -136,7 +136,7 @@
           "$uid": {
             "$r": {
               ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('phase').val() === 'playing' && root.child('rooms').child($room).child('roundKey').val() === $r && !root.child('rooms').child($room).child('banned').child(auth.uid).exists()",
-              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3 && (!data.exists() || newData.val() > data.val())"
+              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 5 && (!data.exists() || newData.val() > data.val())"
             }
           }
         },

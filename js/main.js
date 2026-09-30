@@ -14,7 +14,7 @@ import { Sketch, COLORS, SIZES } from './canvas.js';
 import { renderResult, resetResult, startFreeView } from './result.js';
 import { keepScreenOn } from './wakelock.js';
 import {
-  answerFor, tileSet, choiceSet, fiftyFifty, hintLadder, hintText, letters, descKey, HINT_LABEL,
+  answerFor, tileSet, choiceSet, fiftyFifty, trimTiles, hintLadder, hintText, letters, descKey, HINT_LABEL,
 } from './hints.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -432,7 +432,7 @@ function renderGuessHelper(m, changed) {
   const h = hintInfo(m, g);
   $('#guess-free').hidden = g.mode !== 'free';
   $('#guess-tiles').hidden = g.mode !== 'tiles';
-  $('#guess-choice').hidden = g.mode !== 'choice';
+  $('#guess-choice-box').hidden = g.mode !== 'choice';
   if (changed && g.mode === 'free') $('#guess-input').focus();
 
   // 힌트
@@ -452,8 +452,12 @@ function renderGuessHelper(m, changed) {
     for (const t of items) { const li = document.createElement('li'); li.textContent = t; list.appendChild(li); }
   }
 
+  // 카드·보기를 지우는 힌트
+  g.removedTiles = h.shown.includes('trim') ? trimTiles(g.tiles, g.answer, g.key) : [];
+  g.removedChoices = h.shown.includes('fifty') ? fiftyFifty(g.choices, g.answer, g.key) : [];
+  if (g.removedChoices.includes(g.selected)) g.selected = null;
   if (g.mode === 'tiles') renderTiles(g);
-  if (g.mode === 'choice') renderChoices(g, h.shown.includes('fifty') ? fiftyFifty(g.choices, g.answer, g.key) : []);
+  if (g.mode === 'choice') renderChoices(g);
 }
 
 
@@ -476,7 +480,9 @@ function renderTiles(g) {
     const b = document.createElement('button');
     b.className = 'tile';
     b.textContent = ch;
-    b.disabled = g.picked.includes(ti) || g.picked.length >= n;
+    const gone = (g.removedTiles || []).includes(ti) && !g.picked.includes(ti);
+    if (gone) b.classList.add('removed');
+    b.disabled = gone || g.picked.includes(ti) || g.picked.length >= n;
     b.addEventListener('click', () => { if (g.picked.length < n) { g.picked.push(ti); renderTiles(g); } });
     pool.appendChild(b);
   });
@@ -484,18 +490,22 @@ function renderTiles(g) {
   $('#tile-submit').disabled = g.picked.length < n;
 }
 
-function renderChoices(g, removed) {
+/** 객관식: 보기를 눌러 고르고(다시 고를 수 있음) '완료'로 낸다 */
+function renderChoices(g) {
+  const removed = g.removedChoices || [];
   const box = $('#guess-choice');
-  const key = g.choices.join() + '|' + removed.join();
+  const key = `${g.choices.join()}|${removed.join()}|${g.selected || ''}`;
+  $('#choice-submit').disabled = !g.selected;
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   box.innerHTML = '';
   for (const c of g.choices) {
     const b = document.createElement('button');
-    b.className = 'btn choice' + (removed.includes(c) ? ' removed' : '');
-    b.textContent = c;
+    b.className = 'btn choice' + (removed.includes(c) ? ' removed' : '') + (g.selected === c ? ' selected' : '');
+    b.textContent = (g.selected === c ? '✔ ' : '') + c;
     b.disabled = removed.includes(c);
-    b.addEventListener('click', () => submitCurrent(false, c));
+    b.setAttribute('aria-pressed', String(g.selected === c));
+    b.addEventListener('click', () => { g.selected = c; renderChoices(g); });
     box.appendChild(b);
   }
 }
@@ -504,7 +514,7 @@ function renderChoices(g, removed) {
 function currentGuess(chosen = null) {
   const g = state.guess;
   if (g && g.mode === 'tiles') return g.picked.map((i) => g.tiles[i]).join('');
-  if (g && g.mode === 'choice') return chosen || '';
+  if (g && g.mode === 'choice') return chosen || g.selected || ''; // 시간이 다 되면 고른 보기로
   return $('#guess-input').value.trim().slice(0, 30);
 }
 
@@ -841,6 +851,7 @@ function bindEvents() {
   $('#hint-btn').addEventListener('click', useHint);
   $('#tile-back').addEventListener('click', () => { const g = state.guess; if (g && g.picked.length) { g.picked.pop(); renderTiles(g); } });
   $('#tile-submit').addEventListener('click', () => submitCurrent());
+  $('#choice-submit').addEventListener('click', () => submitCurrent());
   $('#word-custom-ok').addEventListener('click', () => pickWord($('#word-custom').value));
   onEnter($('#word-custom'), () => pickWord($('#word-custom').value));
 
