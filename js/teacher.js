@@ -8,6 +8,9 @@ import {
 } from './classroom.js';
 import { startGame, hostTick, backToLobby, onlinePlayers, pageType, bookFor, readyState } from './game.js';
 import { bookEntries } from './result.js';
+import {
+  parseWordList, formatWordList, descKey, letters, DEFAULT_HINTS, DEFAULT_TILES, DESC_MAX, survived,
+} from './hints.js';
 import { renderResult, resetResult } from './result.js';
 import { keepScreenOn } from './wakelock.js';
 
@@ -46,17 +49,20 @@ function studentLink(code) {
   return url.toString();
 }
 
-function parseWords(text) {
-  const words = text.split(/[\n,]/).map((w) => w.trim().slice(0, WORD_MAX)).filter(Boolean);
-  return [...new Set(words)].slice(0, 500);
-}
-
 /** 화면에 적힌 설정값 (저장 여부와 관계없이 이것이 기준) */
 function formValues() {
+  const { words, desc } = parseWordList($('#t-words').value, WORD_MAX);
   return {
     groups: Number($('#t-groups').value),
-    settings: { drawSec: Number($('#t-draw').value), guessSec: Number($('#t-guess').value) },
-    words: parseWords($('#t-words').value),
+    settings: {
+      drawSec: Number($('#t-draw').value),
+      guessSec: Number($('#t-guess').value),
+      guessMode: $('#t-mode').value,
+      hints: Number($('#t-hints').value),
+      tiles: Number($('#t-tiles').value),
+    },
+    words,
+    desc,
     leaderStart: $('#t-leader').checked,
   };
 }
@@ -162,14 +168,102 @@ function fillForm(cls) {
   $('#t-groups').value = String(cls.groups);
   $('#t-draw').value = String(cls.settings.drawSec);
   $('#t-guess').value = String(cls.settings.guessSec);
-  $('#t-words').value = (cls.words || []).join('\n');
+  $('#t-mode').value = cls.settings.guessMode || 'free';
+  $('#t-hints').value = String(cls.settings.hints ?? DEFAULT_HINTS);
+  $('#t-tiles').value = String(cls.settings.tiles ?? DEFAULT_TILES);
+  $('#t-words').value = formatWordList(cls.words, cls.desc);
   $('#t-leader').checked = cls.leaderStart !== false;
   updateWordCount();
 }
 
 function updateWordCount() {
-  const n = parseWords($('#t-words').value).length;
-  $('#t-words-count').textContent = n ? `(${n}개)` : '(비어 있음 → 기본 제시어 사용)';
+  const { words, desc } = parseWordList($('#t-words').value, WORD_MAX);
+  const d = Object.keys(desc).length;
+  $('#t-words-count').textContent = words.length ? `(${words.length}개${d ? `, 설명 ${d}개` : ''})` : '(비어 있음 → 기본 제시어 사용)';
+}
+
+// ---------- AI 설명 힌트 (Google AI Studio · Gemini API) ----------
+// 선생님 브라우저에서 바로 부른다. 키는 localStorage에만 두고, 보내는 것은 제시어 목록뿐이다.
+const AI_KEY = 'tele.teacher.aiKey';
+const AI_MODEL = 'tele.teacher.aiModel';
+const DEFAULT_AI_MODEL = 'gemini-2.5-flash';
+const AI_BATCH = 60;
+
+function aiPrompt(words) {
+  return [
+    '초등학생이 하는 그림 맞히기 게임의 힌트를 만들어 주세요.',
+    `각 단어를 초등학생이 알아듣는 쉬운 말로 ${DESC_MAX - 15}자 이내 한 문장으로 설명하세요.`,
+    '설명에 그 단어 자체나 단어의 글자를 쓰지 마세요. 정답을 바로 알려 주지 말고 떠올릴 수 있게만 도와주세요.',
+    '다른 말 없이 JSON 객체 하나로만 답하세요. 형식: {"단어": "설명"}',
+    `단어: ${JSON.stringify(words)}`,
+  ].join('\n');
+}
+
+async function aiDescribe(words, key, model) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: aiPrompt(words) }] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.4 },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.error && data.error.message ? data.error.message : `HTTP ${res.status}`;
+    throw new Error(res.status === 404 ? `모델 '${model}'을 찾을 수 없어요. AI Studio에서 모델 이름을 확인해 주세요.`
+      : res.status === 400 || res.status === 403 ? `API 키를 확인해 주세요. (${msg})`
+        : res.status === 429 ? '무료 사용량을 다 썼어요. 잠시 뒤에 다시 해 주세요.' : msg);
+  }
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+  const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+  return json && typeof json === 'object' ? json : {};
+}
+
+/** 정답이 드러나는 설명은 버린다 (단어 전체나 두 글자 이상 이어진 부분이 들어 있으면) */
+function leaksAnswer(word, d) {
+  const w = letters(word).join('');
+  const t = letters(d).join('');
+  if (t.includes(w)) return true;
+  for (let i = 0; i + 2 <= w.length; i++) if (t.includes(w.slice(i, i + 2))) return true;
+  return false;
+}
+
+async function aiFill() {
+  const key = $('#t-ai-key').value.trim();
+  const model = $('#t-ai-model').value.trim() || DEFAULT_AI_MODEL;
+  const status = $('#t-ai-status');
+  if (!key) { status.textContent = 'API 키를 먼저 넣어 주세요.'; return; }
+  try { localStorage.setItem(AI_KEY, key); localStorage.setItem(AI_MODEL, model); } catch { /* 무시 */ }
+  const { words, desc } = parseWordList($('#t-words').value, WORD_MAX);
+  const need = words.filter((w) => !desc[descKey(w)]);
+  if (!need.length) { status.textContent = words.length ? '모든 단어에 설명이 있어요.' : '제시어 목록이 비어 있어요.'; return; }
+  const btn = $('#t-ai-fill');
+  btn.disabled = true;
+  let added = 0;
+  let dropped = 0;
+  try {
+    for (let i = 0; i < need.length; i += AI_BATCH) {
+      status.textContent = `AI가 설명을 만드는 중… (${Math.min(i + AI_BATCH, need.length)}/${need.length})`;
+      const got = await aiDescribe(need.slice(i, i + AI_BATCH), key, model);
+      for (const w of need.slice(i, i + AI_BATCH)) {
+        const d = typeof got[w] === 'string' ? got[w].replace(/\s+/g, ' ').replace(/[:：]/g, ',').trim().slice(0, DESC_MAX) : '';
+        if (!d) continue;
+        if (leaksAnswer(w, d)) { dropped++; continue; }
+        desc[descKey(w)] = d;
+        added++;
+      }
+    }
+    $('#t-words').value = formatWordList(words, desc);
+    updateWordCount();
+    await saveForm();
+    status.textContent = `${added}개 채웠어요${dropped ? ` (정답이 드러난 ${dropped}개는 뺐어요)` : ''}. 읽어 보고 고쳐 주세요.`;
+  } catch (e) {
+    console.warn('ai', e);
+    status.textContent = `⚠ ${e instanceof SyntaxError ? 'AI 답을 읽지 못했어요. 다시 눌러 주세요.' : e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 let roomUnsubs = [];
@@ -523,7 +617,8 @@ function renderWatch() {
     } else if (room.phase === 'playing' && room.order.includes(uid)) {
       const t = turnOf(room, uid);
       tag.textContent = t.done ? '✓ 냈어요' : p.online ? TASK_LABEL[t.type] : '연결 끊김';
-      task.textContent = t.about;
+      const used = Object.values((room.hintUse && room.hintUse[uid]) || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+      task.textContent = t.about + (used ? ` · 💡 힌트 ${used}개 씀` : '');
       if (t.done && t.page) {
         tile.appendChild(previewEl(t.page.hidden ? '(가림)' : t.page.content || '(빈 답)', t.page.type === 'draw' && !!t.page.content));
       } else {
@@ -564,7 +659,8 @@ function renderWatch() {
     const card = document.createElement('div');
     card.className = 'card w-book';
     const h = document.createElement('strong');
-    h.textContent = `${players[owner] ? players[owner].name : '(나간 학생)'}의 스케치북`;
+    h.textContent = `${players[owner] ? players[owner].name : '(나간 학생)'}의 스케치북` +
+      (room.phase === 'result' && survived(room.books && room.books[b], N) ? ' 🏆 끝까지 살아남음' : '');
     const row = document.createElement('div');
     row.className = 'w-pages';
     const bookPages = (room.books && room.books[b] && room.books[b].pages) || {};
@@ -576,7 +672,7 @@ function renderWatch() {
       cell.className = 'w-page';
       const who = document.createElement('span');
       who.className = 'muted';
-      who.textContent = `${idx + 1}. ${players[e.by] ? players[e.by].name : '?'}`;
+      who.textContent = `${idx + 1}. ${players[e.by] ? players[e.by].name : '?'}${e.hint ? ` 💡${e.hint}` : ''}`;
       cell.appendChild(who);
       if (e.type === 'draw' && e.content) {
         const img = document.createElement('img');
@@ -684,7 +780,12 @@ function bind() {
     groups.appendChild(o);
   }
   $('#t-words').addEventListener('input', () => { updateWordCount(); saveSoon(); });
-  for (const sel of ['#t-groups', '#t-draw', '#t-guess', '#t-leader']) $(sel).addEventListener('change', () => saveForm().catch(() => {}));
+  for (const sel of ['#t-groups', '#t-draw', '#t-guess', '#t-leader', '#t-mode', '#t-hints', '#t-tiles']) $(sel).addEventListener('change', () => saveForm().catch(() => {}));
+  try {
+    $('#t-ai-key').value = localStorage.getItem(AI_KEY) || '';
+    $('#t-ai-model').value = localStorage.getItem(AI_MODEL) || DEFAULT_AI_MODEL;
+  } catch { $('#t-ai-model').value = DEFAULT_AI_MODEL; }
+  $('#t-ai-fill').addEventListener('click', aiFill);
 
   $('#t-save').addEventListener('click', async () => {
     try {

@@ -62,14 +62,50 @@
               </select>
             </label>
           </div>
+          <div class="settings three">
+            <label>맞히기 방식
+              <select id="t-mode">
+                <option value="free">✏️ 자유 입력</option>
+                <option value="tiles">🔤 글자 카드</option>
+                <option value="choice">🔘 객관식 (4개 중)</option>
+              </select>
+            </label>
+            <label>힌트 (한 게임에 한 명당)
+              <select id="t-hints">
+                <option value="0">없음</option><option value="1">1개</option><option value="2">2개</option>
+                <option value="3">3개</option><option value="5">5개</option><option value="10">10개</option>
+              </select>
+            </label>
+            <label>글자 카드 수
+              <select id="t-tiles">
+                <option value="8">8장</option><option value="10">10장</option><option value="12">12장</option>
+                <option value="16">16장</option><option value="20">20장</option>
+              </select>
+            </label>
+          </div>
+          <p class="muted small">그림을 보고 맞힐 때: <strong>자유 입력</strong>은 직접 쓰기(단어가 잘 바뀌어 재미있음, 고학년), <strong>글자 카드</strong>는 정답 글자가 섞인 카드를 눌러 완성(저·중학년), <strong>객관식</strong>은 보기 4개 중 고르기(1~2학년, 단어 학습). 힌트는 누를 때마다 한 단계씩: 글자수(카드는 첫 글자) → 초성 → 설명.</p>
           <label class="check">
             <input id="t-leader" type="checkbox" checked>
             <span>모둠장(모둠에 가장 먼저 들어온 학생)이 직접 게임을 시작할 수 있어요</span>
           </label>
           <label class="field">
             <span>제시어 목록 <small id="t-words-count" class="muted"></small></span>
-            <textarea id="t-words" rows="5" placeholder="한 줄에 하나씩 (쉼표로 구분해도 돼요). 비워 두면 기본 제시어 200여 개를 씁니다.&#10;예) 광합성&#10;화산&#10;자석"></textarea>
+            <textarea id="t-words" rows="6" placeholder="한 줄에 하나씩 (쉼표로 구분해도 돼요). 비워 두면 기본 제시어 200여 개를 씁니다.&#10;설명 힌트를 주려면 '단어 : 설명'으로 적어요.&#10;예) 광합성 : 식물이 햇빛으로 양분을 만드는 일&#10;화산&#10;자석"></textarea>
           </label>
+          <details class="ai-box">
+            <summary>🤖 AI로 설명 힌트 채우기 (Google AI Studio, 무료)</summary>
+            <p class="muted small">
+              ① <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>에서 구글 계정으로 API 키를 만들어 아래에 붙여 넣으세요.
+              ② 버튼을 누르면 설명이 없는 단어에만 초등학생용 설명을 만들어 목록에 채워요. 꼭 읽어 보고 고쳐 주세요.
+              키는 이 브라우저에만 저장되고 서버에는 올라가지 않아요. AI에는 제시어 목록만 보내고 학생 정보는 보내지 않아요.
+            </p>
+            <label class="field"><span>Gemini API 키</span><input id="t-ai-key" type="password" autocomplete="off" placeholder="AIza…"></label>
+            <label class="field"><span>모델 <small class="muted">(안 되면 AI Studio에 나오는 최신 Flash 모델 이름으로)</small></span><input id="t-ai-model" autocomplete="off"></label>
+            <div class="row between">
+              <span id="t-ai-status" class="muted small"></span>
+              <button id="t-ai-fill" class="btn small">설명 없는 단어에 AI 설명 채우기</button>
+            </div>
+          </details>
           <p class="muted small">각 학생은 첫 순서에 이 목록에서 무작위로 나온 3개 중 하나를 골라 시작해요. 한 단어는 20자까지.</p>
           <div class="row between">
             <span id="t-save-status" class="muted small">바꾸면 자동으로 저장돼요</span>

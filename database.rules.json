@@ -28,6 +28,15 @@
           },
           "guessSec": {
             ".validate": "newData.isNumber() && newData.val() >= 10 && newData.val() <= 120"
+          },
+          "guessMode": {
+            ".validate": "newData.val() === 'free' || newData.val() === 'tiles' || newData.val() === 'choice'"
+          },
+          "hints": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10"
+          },
+          "tiles": {
+            ".validate": "newData.isNumber() && newData.val() >= 6 && newData.val() <= 20"
           }
         },
         "order": {
@@ -120,6 +129,15 @@
         "warn": {
           "$uid": {
             ".validate": "newData.hasChildren(['at', 'msg']) && newData.child('at').isNumber() && newData.child('msg').isString() && newData.child('msg').val().length <= 100"
+          }
+        },
+        "hintUse": {
+          ".write": "auth != null && data.parent().child('hostId').val() === auth.uid",
+          "$uid": {
+            "$r": {
+              ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('phase').val() === 'playing' && root.child('rooms').child($room).child('roundKey').val() === $r && !root.child('rooms').child($room).child('banned').child(auth.uid).exists()",
+              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3 && (!data.exists() || newData.val() > data.val())"
+            }
           }
         },
         "watch": {

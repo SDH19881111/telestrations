@@ -109,6 +109,7 @@ export async function startGame(code, room, words, opts = {}) {
     resultView: null,
     startRequest: null,
     ready: null,
+    hintUse: null,
     ...roundFields(order, 0, settings),
   });
 }
@@ -171,13 +172,13 @@ export function hostTick(code, room) {
 }
 
 /** 내 제출: 페이지와 제출 표시를 한 번에 쓴다 */
-export function submitPage(code, room, uid, content) {
+export function submitPage(code, room, uid, content, extra = {}) {
   const i = room.order.indexOf(uid);
   const N = room.order.length;
   const r = room.round;
   const b = bookFor(i, r, N);
   return update(roomRef(code), {
-    [`books/${b}/pages/${r}`]: { by: uid, type: pageType(r, N), content },
+    [`books/${b}/pages/${r}`]: { by: uid, type: pageType(r, N), content, ...extra },
     [`submitted/${r}/${uid}`]: true,
   });
 }
@@ -195,7 +196,7 @@ export function backToLobby(code) {
   lastAdvanced.delete(code);
   return update(roomRef(code), {
     phase: 'lobby', order: null, books: null, submitted: null, round: null, roundKey: null,
-    assign: null, deadline: null, resultView: null, startRequest: null, ready: null,
+    assign: null, deadline: null, resultView: null, startRequest: null, ready: null, hintUse: null,
   });
 }
 
@@ -209,4 +210,9 @@ export function readyState(room) {
 
 export function setReady(code, uid, on) {
   return on ? set(roomRef(code, `ready/${uid}`), true) : remove(roomRef(code, `ready/${uid}`));
+}
+
+/** 힌트 사용: 이번 라운드에 연 힌트 단계 수 (1~3) */
+export function submitHintUse(code, uid, round, level) {
+  return set(roomRef(code, `hintUse/${uid}/${round}`), level);
 }

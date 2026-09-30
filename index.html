@@ -123,8 +123,25 @@
     <section id="screen-guess" class="screen card" hidden>
       <h2>이 그림은 무엇일까요?</h2>
       <div class="guess-image"><img id="guess-img" alt="앞사람의 그림"><div id="guess-empty" class="muted" hidden>(앞사람이 그림을 못 그렸어요. 마음대로 적어 주세요!)</div></div>
-      <input id="guess-input" maxlength="30" placeholder="정답을 적어 주세요" autocomplete="off">
-      <button id="guess-submit" class="btn primary big">완료</button>
+      <div id="hint-box" class="hint-box" hidden>
+        <button id="hint-btn" class="btn small hint-btn">💡 힌트</button>
+        <ul id="hint-list" class="hint-list"></ul>
+      </div>
+      <!-- 맞히기 방식: 자유 입력 / 글자 카드 / 객관식 (선생님 설정) -->
+      <div id="guess-free" class="stack">
+        <input id="guess-input" maxlength="30" placeholder="정답을 적어 주세요" autocomplete="off">
+        <button id="guess-submit" class="btn primary big">완료</button>
+      </div>
+      <div id="guess-tiles" class="stack" hidden>
+        <p class="muted small center">글자 카드를 눌러 정답을 완성하세요. 칸을 누르면 빠져요.</p>
+        <div id="tile-slots" class="tile-slots"></div>
+        <div id="tile-pool" class="tile-pool"></div>
+        <div class="row">
+          <button id="tile-back" class="btn">⌫ 한 글자 지우기</button>
+          <button id="tile-submit" class="btn primary grow">완료</button>
+        </div>
+      </div>
+      <div id="guess-choice" class="choices" hidden></div>
     </section>
 
     <!-- 6. 결과 -->

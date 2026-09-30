@@ -1,9 +1,13 @@
 // 수업(교사) 모드: 수업 코드·비밀번호, 모둠 방 열기/닫기, 학생 강퇴
 import { ref, db, get, set, update, remove, onDisconnect, serverNow, roomRef } from './firebase.js';
 import { DEFAULT_SETTINGS, classRoomId, RoomError } from './room.js';
+import { DEFAULT_HINTS, DEFAULT_TILES } from './hints.js';
 
 export const MAX_GROUPS = 8;
-export const DEFAULT_CLASS = { groups: 2, open: false, leaderStart: true, settings: { ...DEFAULT_SETTINGS }, words: [] };
+export const DEFAULT_CLASS = {
+  groups: 2, open: false, leaderStart: true, words: [],
+  settings: { ...DEFAULT_SETTINGS, guessMode: 'free', hints: DEFAULT_HINTS, tiles: DEFAULT_TILES },
+};
 
 const classRef = (code, path = '') => ref(db, `classes/${code}${path ? '/' + path : ''}`);
 
@@ -191,6 +195,7 @@ export async function moveSeat(roomId, room, oldUid, newUid) {
     if (done && done[oldUid]) { u[`submitted/${r}/${newUid}`] = true; u[`submitted/${r}/${oldUid}`] = null; }
   }
   if (room.ready && room.ready[oldUid]) { u[`ready/${newUid}`] = true; u[`ready/${oldUid}`] = null; }
+  if (room.hintUse && room.hintUse[oldUid]) { u[`hintUse/${newUid}`] = room.hintUse[oldUid]; u[`hintUse/${oldUid}`] = null; }
   await update(roomRef(roomId), u);
   await remove(liveRef(roomId, oldUid)).catch(() => {});
 }

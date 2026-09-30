@@ -8,11 +8,14 @@ import {
 import { getClass, groupInfo } from './classroom.js';
 import {
   pageType, bookFor, startGame, hostTick, submitPage, chooseWord, backToLobby, onlinePlayers,
-  readyState, setReady,
+  readyState, setReady, submitHintUse,
 } from './game.js';
 import { Sketch, COLORS, SIZES } from './canvas.js';
 import { renderResult, resetResult, startFreeView } from './result.js';
 import { keepScreenOn } from './wakelock.js';
+import {
+  answerFor, tileSet, choiceSet, fiftyFifty, hintLadder, hintText, letters, descKey, HINT_LABEL,
+} from './hints.js';
 
 const $ = (sel) => document.querySelector(sel);
 const SCREENS = ['screen-home', 'screen-lobby', 'screen-word', 'screen-draw', 'screen-guess', 'screen-result', 'waiting'];
@@ -27,6 +30,9 @@ const state = {
   sentRound: null, // 내가 제출 요청을 보낸 라운드 (DB 반영 전 중복 제출 방지)
   words: FALLBACK_WORDS,
   leaderStart: false, // 수업 방: 모둠장이 직접 시작할 수 있는지 (선생님 설정)
+  classWords: [],     // 수업 방: 선생님 제시어 (글자 카드·객관식 오답용)
+  classDesc: {},      // 수업 방: 제시어 설명 (설명 힌트)
+  guess: null,        // 지금 추측 화면의 맞히기 도우미 상태 {key, mode, answer, tiles, picked, choices}
 };
 
 let sketch = null;
@@ -146,19 +152,24 @@ function enterRoom(code) {
   });
 }
 
-// 수업 방: 선생님이 '모둠장이 직접 시작'을 켰는지 구독
-let leaderStartOff = null;
-function watchLeaderStart(classCode) {
-  if (leaderStartOff) return;
-  leaderStartOff = onValue(ref(db, `classes/${classCode}/leaderStart`), (snap) => {
-    state.leaderStart = snap.val() === true;
+// 수업 방: 선생님 설정 중 학생 화면에 필요한 것 구독 ('모둠장이 직접 시작', 제시어와 설명)
+let classOffs = null;
+function watchClass(classCode) {
+  if (classOffs) return;
+  const sub = (path, fn) => onValue(ref(db, `classes/${classCode}/${path}`), (snap) => {
+    fn(snap.val());
     if (state.room) render();
   }, () => {});
+  classOffs = [
+    sub('leaderStart', (v) => { state.leaderStart = v === true; }),
+    sub('words', (v) => { state.classWords = Array.isArray(v) ? v : []; }),
+    sub('desc', (v) => { state.classDesc = v || {}; }),
+  ];
 }
 
 function exitRoom(message = '') {
-  if (leaderStartOff) { leaderStartOff(); leaderStartOff = null; }
-  state.leaderStart = false;
+  if (classOffs) { classOffs.forEach((off) => off()); classOffs = null; }
+  Object.assign(state, { leaderStart: false, classWords: [], classDesc: {}, guess: null });
   if (state.unsub) state.unsub();
   stopPresence();
   keepScreenOn(false);
@@ -179,7 +190,7 @@ function onRoom(room) {
   if (!room.players || !room.players[state.uid]) return exitRoom(room.class ? '모둠에서 나왔어요. 다시 들어올 수 있어요.' : '방에서 나왔어요.');
   state.room = room;
   showWarning(room);
-  if (room.class) watchLeaderStart(room.class);
+  if (room.class) watchClass(room.class);
   if (room.phase !== 'playing') {
     state.sentRound = null;
     if (draftKey !== '') { draftKey = ''; clearDrafts(); } // 게임이 끝나면 한 번만 정리 (다음 판에 옛 그림이 살아나지 않게)
@@ -229,8 +240,9 @@ function render() {
     if (changed) { startDrawing(m); $('#word-custom').value = ''; show('screen-draw'); }
     renderDraw(m);
   } else {
-    if (changed) { $('#guess-input').value = ''; show('screen-guess'); $('#guess-input').focus(); }
+    if (changed) { $('#guess-input').value = ''; state.guess = null; show('screen-guess'); }
     renderGuess(m); // 선생님이 앞 그림을 가리면 바로 반영
+    renderGuessHelper(m, changed);
   }
   updateHud();
 }
@@ -380,6 +392,133 @@ function renderGuess(m) {
   if (has && $('#guess-img').getAttribute('src') !== prev.content) $('#guess-img').src = prev.content;
 }
 
+// ---------- 맞히기 도우미: 글자 카드·객관식·힌트 ----------
+/** 이번 추측의 방식과 카드·보기. 같은 차례에서는 한 번만 만든다 (새로고침해도 같은 배치). */
+function guessSetup(m) {
+  const { room } = state;
+  const book = (room.books && room.books[m.b]) || {};
+  const answer = answerFor(book, m.r);
+  const key = `${room.createdAt}:${room.order.join()}:${m.r}:${m.b}`;
+  const want = room.class ? (room.settings.guessMode || 'free') : 'free';
+  const primary = room.class ? state.classWords : [];
+  // 가려졌거나 빈 글이면 정답이 없으니 자유 입력으로
+  const mode = answer ? want : 'free';
+  const sig = `${key}:${mode}:${answer}:${primary.length}:${state.words.length}`;
+  if (state.guess && state.guess.sig === sig) return state.guess;
+  const prev = state.guess && state.guess.key === key ? state.guess : null;
+  state.guess = {
+    sig, key, mode, answer,
+    tiles: mode === 'tiles' ? tileSet(answer, primary, state.words, room.settings.tiles, key) : [],
+    picked: prev && prev.mode === mode && mode === 'tiles' ? prev.picked : [], // 카드 목록이 같을 때만 유지
+    choices: mode === 'choice' ? choiceSet(answer, primary, state.words, key) : [],
+  };
+  if (prev && prev.mode === 'tiles' && prev.tiles.join() !== state.guess.tiles.join()) state.guess.picked = [];
+  return state.guess;
+}
+
+function hintInfo(m, g) {
+  const { room, uid } = state;
+  const total = room.class ? Number(room.settings.hints) || 0 : 0;
+  const mine = (room.hintUse && room.hintUse[uid]) || {};
+  const used = Object.values(mine).reduce((a, b) => a + (Number(b) || 0), 0);
+  const level = Number(mine[m.r]) || 0;
+  const desc = g.answer ? state.classDesc[descKey(g.answer)] || '' : '';
+  const ladder = g.answer ? hintLadder(g.mode, !!desc) : [];
+  return { total, used, level, desc, ladder, shown: ladder.slice(0, level) };
+}
+
+function renderGuessHelper(m, changed) {
+  const g = guessSetup(m);
+  const h = hintInfo(m, g);
+  $('#guess-free').hidden = g.mode !== 'free';
+  $('#guess-tiles').hidden = g.mode !== 'tiles';
+  $('#guess-choice').hidden = g.mode !== 'choice';
+  if (changed && g.mode === 'free') $('#guess-input').focus();
+
+  // 힌트
+  $('#hint-box').hidden = h.total <= 0;
+  const btn = $('#hint-btn');
+  const left = Math.max(0, h.total - h.used);
+  const next = h.ladder[h.level];
+  btn.disabled = !next || left <= 0;
+  btn.textContent = !h.ladder.length ? '💡 이 그림은 힌트가 없어요'
+    : !next ? '💡 힌트를 모두 봤어요'
+      : `💡 ${HINT_LABEL[next]} 힌트 보기 (남은 힌트 ${left}개)`;
+  const list = $('#hint-list');
+  const items = h.shown.map((k) => hintText(k, g.answer, h.desc));
+  if (list.dataset.key !== items.join('|')) {
+    list.dataset.key = items.join('|');
+    list.innerHTML = '';
+    for (const t of items) { const li = document.createElement('li'); li.textContent = t; list.appendChild(li); }
+  }
+
+  if (g.mode === 'tiles') renderTiles(g);
+  if (g.mode === 'choice') renderChoices(g, h.shown.includes('fifty') ? fiftyFifty(g.choices, g.answer, g.key) : []);
+}
+
+
+function renderTiles(g) {
+  const n = letters(g.answer).length;
+  const slots = $('#tile-slots');
+  slots.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement('button');
+    const ti = g.picked[i];
+    b.className = 'tile-slot' + (ti !== undefined ? ' filled' : '');
+    b.textContent = ti !== undefined ? g.tiles[ti] : '';
+    b.setAttribute('aria-label', `${i + 1}번째 칸`);
+    if (ti !== undefined) b.addEventListener('click', () => { g.picked.splice(i, 1); renderTiles(g); });
+    slots.appendChild(b);
+  }
+  const pool = $('#tile-pool');
+  pool.innerHTML = '';
+  g.tiles.forEach((ch, ti) => {
+    const b = document.createElement('button');
+    b.className = 'tile';
+    b.textContent = ch;
+    b.disabled = g.picked.includes(ti) || g.picked.length >= n;
+    b.addEventListener('click', () => { if (g.picked.length < n) { g.picked.push(ti); renderTiles(g); } });
+    pool.appendChild(b);
+  });
+  $('#tile-back').disabled = !g.picked.length;
+  $('#tile-submit').disabled = g.picked.length < n;
+}
+
+function renderChoices(g, removed) {
+  const box = $('#guess-choice');
+  const key = g.choices.join() + '|' + removed.join();
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  box.innerHTML = '';
+  for (const c of g.choices) {
+    const b = document.createElement('button');
+    b.className = 'btn choice' + (removed.includes(c) ? ' removed' : '');
+    b.textContent = c;
+    b.disabled = removed.includes(c);
+    b.addEventListener('click', () => submitCurrent(false, c));
+    box.appendChild(b);
+  }
+}
+
+/** 지금 추측 화면에 적거나 고른 답 */
+function currentGuess(chosen = null) {
+  const g = state.guess;
+  if (g && g.mode === 'tiles') return g.picked.map((i) => g.tiles[i]).join('');
+  if (g && g.mode === 'choice') return chosen || '';
+  return $('#guess-input').value.trim().slice(0, 30);
+}
+
+async function useHint() {
+  const m = me();
+  const { room, uid, code } = state;
+  if (!m || m.type !== 'guess' || hasSubmitted()) return;
+  const h = hintInfo(m, guessSetup(m));
+  if (!h.ladder[h.level] || h.used >= h.total) return;
+  try {
+    await submitHintUse(code, uid, room.round, h.level + 1);
+  } catch (e) { console.error(e); toast('힌트를 열지 못했어요.'); }
+}
+
 // ---------- 결과 화면: 준비 완료 → 다음 판 ----------
 function renderReady() {
   const { room, uid } = state;
@@ -443,7 +582,8 @@ function uploadLive() {
     if (sig === lastLive) return;
     payload = { img: sketch.preview() };
   } else {
-    const text = (m.type === 'guess' ? $('#guess-input').value : $('#word-input').value).trim().slice(0, 30);
+    if (m.type === 'guess' && state.guess && state.guess.mode === 'choice') return;
+    const text = (m.type === 'guess' ? currentGuess() : $('#word-input').value).trim().slice(0, 30);
     sig = `${m.r}:t:${text}`;
     if (sig === lastLive) return;
     payload = { text };
@@ -475,17 +615,19 @@ async function submitCurrent(auto = false, chosen = null) {
   if (m.type === 'draw') content = sketch.isEmpty() ? '' : sketch.toDataURL();
   else if (m.type === 'word' && classChoices(m)) content = chosen || classChoices(m)[0]; // 시간이 다 되면 첫 후보
   else if (m.type === 'word') content = $('#word-input').value.trim().slice(0, 20);
-  else content = $('#guess-input').value.trim().slice(0, 30);
+  else content = currentGuess(chosen);
 
   if (!auto && !content) {
     toast(m.type === 'draw' ? '그림을 조금이라도 그려 주세요!' : '답을 적어 주세요!');
     return;
   }
+  // 선생님 화면에서 💡 표시용: 이 차례에 연 힌트 수
+  const hintLevel = m.type === 'guess' ? Number(room.hintUse && room.hintUse[state.uid] && room.hintUse[state.uid][m.r]) || 0 : 0;
   const round = room.round;
   state.sentRound = round;
   render();
   try {
-    await submitPage(state.code, room, state.uid, content);
+    await submitPage(state.code, room, state.uid, content, hintLevel ? { hint: hintLevel } : {});
     if (m.type === 'draw') { draftKey = null; clearDrafts(); }
     if (auto) toast('시간이 다 돼서 자동으로 제출했어요.');
   } catch (e) {
@@ -696,6 +838,9 @@ function bindEvents() {
   $('#draw-submit').addEventListener('click', () => submitCurrent());
   $('#guess-submit').addEventListener('click', () => submitCurrent());
   onEnter($('#guess-input'), () => submitCurrent());
+  $('#hint-btn').addEventListener('click', useHint);
+  $('#tile-back').addEventListener('click', () => { const g = state.guess; if (g && g.picked.length) { g.picked.pop(); renderTiles(g); } });
+  $('#tile-submit').addEventListener('click', () => submitCurrent());
   $('#word-custom-ok').addEventListener('click', () => pickWord($('#word-custom').value));
   onEnter($('#word-custom'), () => pickWord($('#word-custom').value));
 

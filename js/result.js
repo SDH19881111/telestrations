@@ -1,5 +1,6 @@
 // 결과 화면: 스케치북을 한 권씩, 한 장씩 넘겨 보기 (방장이 넘기면 모두 같이 넘어가는 발표 모드)
 import { setResultView } from './game.js';
+import { survived } from './hints.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -106,7 +107,10 @@ export function renderResult(ctx) {
   }
 
   const entries = bookEntries(room, view.book);
-  $('#result-title').textContent = `${nameOf(room, room.order[view.book])}의 스케치북 (${view.book + 1}/${N})`;
+  // 마지막 장까지 넘겼을 때, 첫 제시어가 끝까지 이어졌으면 축하
+  const won = view.step === entries.length - 1 && survived(room.books && room.books[view.book], N);
+  $('#result-title').textContent = `${nameOf(room, room.order[view.book])}의 스케치북 (${view.book + 1}/${N})` + (won ? ' 🏆 끝까지 살아남은 단어!' : '');
+  $('#result-title').classList.toggle('survived', won);
 
   const key = `${view.book}:${view.step}:${freeView ? 'f' : 's'}:${entries.map((e) => (e.content || '').length + (e.hidden ? 'h' : '')).join()}`;
   if (key !== lastRendered) {
