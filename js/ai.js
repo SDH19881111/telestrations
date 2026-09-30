@@ -41,16 +41,29 @@ export function rankModels(models) {
 
 export const chooseModel = (models) => rankModels(models)[0] || '';
 
+/** 구글 서버가 붐빌 때(일시적): 잠깐 기다렸다 다시, 그래도 안 되면 다른 모델로 */
+const isBusy = (status) => status === 500 || status === 502 || status === 503 || status === 504;
+/** 다른 모델로 넘어가 볼 오류: 없는 모델, 모델별 사용량 초과, 서버 붐빔 */
+const tryNext = (status) => status === 404 || status === 429 || isBusy(status);
+
 function apiError(res, data, model) {
   const msg = data && data.error && data.error.message ? data.error.message : `HTTP ${res.status}`;
-  if (res.status === 404) return Object.assign(new Error(`모델 '${model}'을 쓸 수 없어요. 모델 칸을 비우면 자동으로 골라요.`), { status: 404 });
-  if (res.status === 400 || res.status === 401 || res.status === 403) return new Error(`API 키를 확인해 주세요. (${msg})`);
-  if (res.status === 429) return new Error('무료 사용량을 다 썼어요. 잠시 뒤에 다시 해 주세요.');
-  return new Error(msg);
+  const err = (text) => Object.assign(new Error(text), { status: res.status });
+  if (res.status === 404) return err(`모델 '${model}'을 쓸 수 없어요. 모델 칸을 비우면 자동으로 골라요.`);
+  if (res.status === 400 || res.status === 401 || res.status === 403) return err(`API 키를 확인해 주세요. (${msg})`);
+  if (res.status === 429) return err('무료 사용량을 다 썼어요. 1~2분 뒤에 다시 눌러 주세요. (하루 사용량을 다 썼다면 내일 다시)');
+  if (isBusy(res.status)) return err('구글 AI 서버가 지금 붐벼요. 1~2분 뒤에 다시 눌러 주세요.');
+  return err(msg);
 }
 
 const ranked = new Map(); // 키별 후보 모델 목록 (한 번만 받는다)
-const MAX_TRIES = 5;
+const MAX_TRIES = 8;
+let retryDelays = [2000, 5000]; // 붐빌 때 첫 모델을 다시 시도하기 전 기다리는 시간
+
+/** 테스트용: 다시 시도 전 기다리는 시간 */
+export function setRetryDelays(ms) { retryDelays = ms; }
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function candidates(key) {
   if (ranked.has(key)) return ranked.get(key);
@@ -90,27 +103,48 @@ async function generate(words, key, model, maxLen) {
 }
 
 /**
- * 단어들의 설명을 받는다. model을 먼저 쓰고, 비었거나 쓸 수 없으면(404) 자동 후보를 차례로 쓴다.
+ * 단어들의 설명을 받는다. model(비었으면 자동 후보 1순위)을 먼저 쓰고,
+ * 서버가 붐비면 잠깐 기다렸다 다시, 그래도 안 되거나 쓸 수 없는 모델이면 다음 후보 모델로 넘어간다.
+ * onNote(글): 기다리거나 모델을 바꿀 때 화면에 알릴 말.
  * → { got: {단어: 설명}, model: 실제로 쓴 모델 }
  */
-export async function describeWords(words, key, model = '', maxLen = 25) {
+export async function describeWords(words, key, model = '', maxLen = 25, onNote = () => {}) {
   let lastErr = null;
-  if (model) {
+  let first = true;
+  const attempt = async (m) => {
     try {
-      return { got: await generate(words, key, model, maxLen), model };
+      return await generate(words, key, m, maxLen);
     } catch (e) {
-      if (e.status !== 404) throw e;
-      lastErr = e;
+      if (!first || !isBusy(e.status)) throw e;
+      // 첫 모델만 조금 기다렸다 다시 (보통 금방 풀린다)
+      for (const ms of retryDelays) {
+        onNote(`구글 서버가 붐벼서 ${Math.round(ms / 1000)}초 기다렸다 다시 해 볼게요…`);
+        await wait(ms);
+        try { return await generate(words, key, m, maxLen); } catch (e2) { if (!isBusy(e2.status)) throw e2; e = e2; }
+      }
+      throw e;
+    } finally {
+      first = false;
     }
+  };
+  const tryModel = async (m) => {
+    try {
+      return { got: await attempt(m), model: m };
+    } catch (e) {
+      if (!tryNext(e.status)) throw e;
+      lastErr = e;
+      if (e.status === 404 && ranked.has(key)) ranked.set(key, ranked.get(key).filter((n) => n !== m)); // 막힌 모델은 다음부터 건너뛴다
+      return null;
+    }
+  };
+  if (model) {
+    const r = await tryModel(model);
+    if (r) return r;
   }
   for (const m of (await candidates(key)).filter((n) => n !== model).slice(0, MAX_TRIES)) {
-    try {
-      return { got: await generate(words, key, m, maxLen), model: m };
-    } catch (e) {
-      if (e.status !== 404) throw e;
-      lastErr = e;
-      ranked.set(key, ranked.get(key).filter((n) => n !== m)); // 막힌 모델은 다음부터 건너뛴다
-    }
+    if (lastErr) onNote(`다른 모델(${m})로 해 볼게요…`);
+    const r = await tryModel(m);
+    if (r) return r;
   }
   throw lastErr || new Error('쓸 수 있는 Gemini 모델을 찾지 못했어요.');
 }

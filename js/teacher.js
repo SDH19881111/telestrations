@@ -205,7 +205,7 @@ async function aiFill() {
   try {
     for (let i = 0; i < need.length; i += AI_BATCH) {
       status.textContent = `AI가 설명을 만드는 중… (${Math.min(i + AI_BATCH, need.length)}/${need.length})`;
-      const res = await describeWords(need.slice(i, i + AI_BATCH), key, used, DESC_MAX - 15);
+      const res = await describeWords(need.slice(i, i + AI_BATCH), key, used, DESC_MAX - 15, (note) => { status.textContent = note; });
       const { got } = res;
       used = res.model;
       for (const w of need.slice(i, i + AI_BATCH)) {
